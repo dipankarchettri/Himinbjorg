@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -142,7 +143,11 @@ class LoopStats:
     tier_calls: dict = field(default_factory=dict)
 
     def as_dict(self) -> dict:
-        d = dict(self.__dict__)
+        # Copies, not references: callers snapshot this before a task and
+        # diff it after. A shared request_ids list made every per-task cost
+        # lookup empty, so the REPL and the editor never showed one.
+        d = {k: (list(v) if isinstance(v, list) else dict(v) if isinstance(v, dict) else v)
+             for k, v in self.__dict__.items()}
         d["total_tokens"] = self.prompt_tokens + self.completion_tokens
         d["provider_tokens"] = d["total_tokens"] - self.cached_tokens
         return d
@@ -154,6 +159,11 @@ class Agent:
     MAX_CALLS_PER_TURN = 8  # tool calls executed from a single completion
     PAGING_HINT = 5         # reads of one file in a task before suggesting grep
     MAX_NUDGES = 2          # pushes back on text-only replies that are not an answer
+    MAX_DENIALS = 2         # operator denials in one task before control returns to them
+    # Sticky failover lasts this long, then the primary is tried again.
+    # Measured on a Gemini free tier: a 429 carried retry_after 34 s, and a
+    # session-long pin left a run on the local model after a blip.
+    STICKY_SECONDS = 60.0
 
     def __init__(self, settings, privacy, client: llm_mod.LLMClient, registry: Registry,
                  printer=print):
@@ -178,11 +188,13 @@ class Agent:
         self._rename_allowed = True
         self._turn_base = 0
         self._last_turn = 0
-        self._sticky: dict = {}
+        self._sticky: dict = {}             # tier -> (served model, monotonic expiry)
+        self._last_provider_was_fallback = False
         self._reads_this_task: dict[str, int] = {}
         self._edited_this_task = False
         self._nudges = 0
-        self._nudged_no_edit = False            # tier -> model that took over after a failover
+        self._nudged_no_edit = False
+        self._denials = 0
         self._manifest_text = ""
 
     def _manifest(self, limit: int = 60) -> str:
@@ -257,11 +269,13 @@ class Agent:
         # controls no-progress detection and dedup, not the ceiling.
         max_turns = self.settings.max_turns
         no_progress = 0
+        half_escalated = False
         self._reads_this_task: dict[str, int] = {}
         self._failed_edits = 0
         self._edited_this_task = False
         self._nudges = 0
         self._nudged_no_edit = False
+        self._denials = 0
 
         self._last_turn = base
         for step in range(1, max_turns + 1):
@@ -281,6 +295,16 @@ class Agent:
                            f"Downgrading to {nxt.value}. Quality will be lower.")
                 self.print(f"  {quota.describe()}")
                 decision = router_mod.RoutingDecision(nxt, "budget downgrade", "escalated")
+                continue
+            except llm_mod.ProviderPaymentRequired as exc:
+                decision = getattr(self, "_tier_in_flight", decision)
+                nxt = budget_mod.degrade(decision.tier)
+                if nxt is None:
+                    self.print(f"\n  The provider refused payment (HTTP 402): {exc}")
+                    return "stopped: the provider has no credit, and no cheaper tier is available"
+                self.print(f"\n  The provider for {decision.tier.value} has no credit (HTTP 402 "
+                           f"from the provider; your budget is fine). Downgrading to {nxt.value}.")
+                decision = router_mod.RoutingDecision(nxt, "provider payment required", "escalated")
                 continue
             except llm_mod.RateLimited as exc:
                 self.print(f"\n  Rate limited: {exc}. The fallback chain handles this; retrying once.")
@@ -336,8 +360,13 @@ class Agent:
                 if self._dispatch(call, turn):
                     progressed = True
 
+            if self._denials >= self.MAX_DENIALS:
+                return (f"stopped: you declined {self._denials} actions, so I have stopped. "
+                        "Tell me how you would like to proceed.")
+
             no_progress = 0 if progressed else no_progress + 1
             stuck = None
+            soft = False          # True: escalate if possible, never stop
             if self.settings.levers.loop_limits and no_progress >= 3:
                 stuck = "three consecutive turns made no progress"
             # Reads between failed edits count as progress, so no_progress
@@ -345,11 +374,21 @@ class Agent:
             # failed patches and 29,557 tokens on a 3-turn task.
             elif self.settings.levers.loop_limits and self._failed_edits >= self.FAILED_EDIT_LIMIT:
                 stuck = f"{self._failed_edits} consecutive edits failed"
+            # Measured on Gemini: the cheap tier kept "progressing" (reads,
+            # edits that applied) on a task beyond it until the turn limit,
+            # so neither trigger above fired. Half the budget spent on an
+            # unfinished change is the signal; escalate once.
+            elif (self.settings.levers.loop_limits and mutating and not half_escalated
+                  and step == max_turns // 2):
+                half_escalated = True
+                stuck, soft = f"half the {max_turns}-turn budget is spent", True
             if stuck:
                 # Cheapest model that succeeds: move up a tier rather than
                 # give up, when a higher tier is a different model. Stop only
                 # when there is nowhere to go (always, in confidential mode).
                 up = self._escalation(decision)
+                if up is None and soft:
+                    continue
                 if up is None:
                     return f"stopped: {stuck}"
                 self.print(f"\n  {stuck} on {router_mod.model_for(decision.tier, self.settings)}; "
@@ -375,7 +414,10 @@ class Agent:
         model = router_mod.model_for(decision.tier, self.settings)
         fallbacks = router_mod.fallbacks_for(
             decision.tier, self.settings, self.settings.confidential)
-        sticky = self._sticky.get(decision.tier)
+        sticky, until = self._sticky.get(decision.tier, (None, 0.0))
+        if sticky and time.monotonic() >= until:
+            self._sticky.pop(decision.tier, None)
+            sticky = None
         if sticky and sticky != model:
             # Sticky failover: go straight to the model that answered last
             # time instead of paying a failed round trip on every call. The
@@ -405,7 +447,8 @@ class Agent:
         )
         result = self.client.call(spec)
         if result.routing.is_fallback and result.routing.provider:
-            self._sticky[decision.tier] = result.routing.describe()
+            self._sticky[decision.tier] = (result.routing.describe(),
+                                           time.monotonic() + self.STICKY_SECONDS)
 
         self.stats.llm_calls += 1
         self.stats.prompt_tokens += result.usage.prompt_tokens
@@ -432,12 +475,17 @@ class Agent:
         if result.routing.is_fallback:
             self.print(f"\n  Provider changed: "
                        f"{result.routing.primary_provider}/{result.routing.primary_model} "
-                       f"unavailable, now served by {served}. Using it for the rest of "
-                       f"this session.")
+                       f"unavailable, now served by {served}. Staying on it for "
+                       f"{self.STICKY_SECONDS:.0f}s, then retrying the primary.")
             trace.emit("provider_change", {
                 "from": f"{result.routing.primary_provider}/{result.routing.primary_model}",
                 "to": served, "request_id": result.request_id})
+        elif self._last_provider_was_fallback:
+            self.print(f"\n  Provider restored: now served by {served}.")
+            trace.emit("provider_change", {"from": self._last_provider, "to": served,
+                                           "request_id": result.request_id})
         self._last_provider = served
+        self._last_provider_was_fallback = bool(result.routing.is_fallback)
 
     # ----------------------------------------------------------- dispatch
 
@@ -489,7 +537,14 @@ class Agent:
             if decision.reason == "operator approved all edits this session":
                 self._edits_preapproved = True
             if decision.decision == "DENIED":
-                return self._tool_result(call, turn, "The operator denied this action.")
+                # Measured from the editor: after one plain "denied" the model
+                # retried the edit, then tried run_command and write_file, six
+                # approval prompts in all. A denial is the operator's answer.
+                self._denials += 1
+                return self._tool_result(
+                    call, turn, "The operator denied this action. Do not retry it, and do not "
+                    "try to achieve the same change another way. If you think it is needed, "
+                    "explain why in your reply and stop; the operator will answer.")
             if decision.decision == "APPROVED":
                 self.stats.approvals_granted += 1
 

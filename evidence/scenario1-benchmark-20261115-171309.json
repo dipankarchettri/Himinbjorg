@@ -1,0 +1,85 @@
+{
+  "scenario": "token_efficiency",
+  "note": "Both arms are the same binary; only lever flags differ. Token counts are gateway-reported.",
+  "results": [
+    {
+      "task": "shop_freeship",
+      "arm": "optimized",
+      "success": true,
+      "turns": 13,
+      "llm_calls": 13,
+      "prompt_tokens": 39560,
+      "completion_tokens": 713,
+      "total_tokens": 40273,
+      "cache_hits": 0,
+      "cached_tokens": 0,
+      "provider_tokens": 40273,
+      "tool_calls": 12,
+      "approvals": 5,
+      "wall_seconds": 205.8,
+      "cost_usd": 0.009191,
+      "cost_logs": "13/13",
+      "tiers": {
+        "T1_CHEAP": 9,
+        "T2_CAPABLE": 4
+      },
+      "suppressed_rereads": 0,
+      "elided_tokens": 29846,
+      "error": "",
+      "stop": ""
+    },
+    {
+      "task": "shop_freeship",
+      "arm": "optimized",
+      "success": false,
+      "turns": 14,
+      "llm_calls": 14,
+      "prompt_tokens": 53297,
+      "completion_tokens": 483,
+      "total_tokens": 53780,
+      "cache_hits": 0,
+      "cached_tokens": 0,
+      "provider_tokens": 53780,
+      "tool_calls": 14,
+      "approvals": 2,
+      "wall_seconds": 220.6,
+      "cost_usd": 0.012633,
+      "cost_logs": "14/14",
+      "tiers": {
+        "T1_CHEAP": 9,
+        "T2_CAPABLE": 5
+      },
+      "suppressed_rereads": 0,
+      "elided_tokens": 33602,
+      "error": "",
+      "stop": "stopped: three consecutive turns made no progress"
+    },
+    {
+      "task": "shop_freeship",
+      "arm": "optimized",
+      "success": false,
+      "turns": 18,
+      "llm_calls": 18,
+      "prompt_tokens": 46007,
+      "completion_tokens": 998,
+      "total_tokens": 47005,
+      "cache_hits": 0,
+      "cached_tokens": 0,
+      "provider_tokens": 47005,
+      "tool_calls": 19,
+      "approvals": 10,
+      "wall_seconds": 117.2,
+      "cost_usd": 0.006728,
+      "cost_logs": "18/18",
+      "tiers": {
+        "T1_CHEAP": 9,
+        "T2_CAPABLE": 9
+      },
+      "suppressed_rereads": 0,
+      "elided_tokens": 52361,
+      "error": "",
+      "stop": "stopped: reached the 18-turn limit"
+    }
+  ],
+  "attribution": []
+}

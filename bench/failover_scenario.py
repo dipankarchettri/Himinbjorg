@@ -9,6 +9,7 @@ which is a genuine provider failure and serves the scenario exactly.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -22,17 +23,26 @@ BASE = "http://localhost:8099"
 VK = "sk-bf-demo-user-key"
 SETUP_TOKEN = "bifrost-local-setup-token"
 LOCAL = "ollama/qwen2.5:7b-instruct"
-BROKEN_PRIMARY = "openai/gpt-4o-mini"
-CLOUD_FALLBACK = "anthropic/claude-haiku-5-5"
-# Chain: broken OpenAI -> Anthropic -> local. With a working Anthropic key
-# the outage is absorbed cloud-to-cloud at fallback index 1; without one,
-# Anthropic fails too and local takes over at index 2. Both are genuine
-# provider failures and both are reported to the user.
-FALLBACKS = [CLOUD_FALLBACK, LOCAL]
+# Default chain: broken OpenAI -> Anthropic -> local. With a working
+# Anthropic key the outage is absorbed cloud-to-cloud at fallback index 1;
+# without one, Anthropic fails too and local takes over at index 2. Both
+# are genuine provider failures and both are reported to the user.
+# Override both to test another chain, e.g. a real Gemini rate limit:
+#   FAILOVER_PRIMARY=gemini/gemini-pro-latest \
+#   FAILOVER_CLOUD=gemini/gemini-3.1-flash-lite python bench/failover_scenario.py
+BROKEN_PRIMARY = os.environ.get("FAILOVER_PRIMARY", "openai/gpt-4o-mini")
+# FAILOVER_CLOUD takes a comma-separated list for a longer chain.
+CLOUD_FALLBACKS = [m.strip() for m in
+                   os.environ.get("FAILOVER_CLOUD", "anthropic/claude-haiku-5-5").split(",") if m.strip()]
+FALLBACKS = [*CLOUD_FALLBACKS, LOCAL]
+
+
+def _provider(model: str) -> str:
+    return model.split("/", 1)[0]
 
 
 def call(model: str, fallbacks: list[str]):
-    payload = {"model": model, "max_tokens": 16,
+    payload = {"model": model, "max_tokens": 200,   # reasoning models spend some first
                "messages": [{"role": "user", "content": "Reply with exactly: OK"}]}
     if fallbacks:
         payload["fallbacks"] = fallbacks
@@ -68,7 +78,7 @@ def main() -> int:
     print("=" * 68)
     print("SCENARIO 2: failover from a broken primary, with attribution")
     print("=" * 68)
-    print(f"  primary  : {BROKEN_PRIMARY}  (deliberately non-functional)")
+    print(f"  primary  : {BROKEN_PRIMARY}  (expected to fail: broken or rate-limited)")
     print(f"  fallbacks: {' -> '.join(FALLBACKS)}")
     print()
 
@@ -103,10 +113,11 @@ def main() -> int:
             if k in log:
                 print(f"    {k:18}: {log[k]}")
 
+    served_model = f"{ri.get('provider')}/{ri.get('model')}"
     ok = (status == 200 and ri.get("is_fallback") is True
-          and ri.get("provider") in ("anthropic", "ollama")
-          and ri.get("primary_provider") == "openai")
-    kind = {"anthropic": "cloud-to-cloud", "ollama": "cloud-to-local"}.get(ri.get("provider"), "?")
+          and served_model in FALLBACKS
+          and ri.get("primary_provider") == _provider(BROKEN_PRIMARY))
+    kind = "cloud-to-local" if ri.get("provider") == "ollama" else "cloud-to-cloud"
     print()
     print(f"  failover kind   : {kind}")
     print(f"  RESULT: {'PASS' if ok else 'FAIL'} - "
@@ -118,6 +129,7 @@ def main() -> int:
     path = out / f"scenario2-failover-{stamp}.json"
     path.write_text(json.dumps({
         "scenario": "provider_failover", "passed": ok, "http_status": status,
+        "primary": BROKEN_PRIMARY, "fallbacks": FALLBACKS,
         "routing_info": ri, "request_id": rid,
         "headers": {k: v for k, v in h.items() if k.startswith("x-bifrost")},
         "gateway_log": log,

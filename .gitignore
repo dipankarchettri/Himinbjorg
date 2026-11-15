@@ -19,6 +19,15 @@ evidence/*
 !evidence/scenario1-benchmark-20261115-015810.json
 !evidence/scenario1-benchmark-20261115-024233.json
 !evidence/scenario1-benchmark-20261115-034421.json
+# cloud runs and re-checks, 2026-11-15 (docs/VERIFIED.md)
+!evidence/scenario1-benchmark-20261115-161010.json
+!evidence/scenario1-benchmark-20261115-171309.json
+!evidence/scenario1-benchmark-20261115-174318.json
+!evidence/scenario1-benchmark-20261115-175123.json
+!evidence/scenario2-failover-20261115-160555.json
+!evidence/scenario2-failover-20261115-171258.json
+!evidence/scenario4-privacy-20261115-172056.json
+!evidence/scenario5-approval-20261115-174446.json
 
 # Bifrost persisted state (databases, logs, vector data).
 # config.json IS tracked: it is the deployment definition.
@@ -29,3 +38,9 @@ infra/data/*
 .bench-work/
 *.egg-info/
 build/
+
+# VS Code extension build output
+extension/node_modules/
+extension/out/
+extension/*.vsix
+extension/.vscode-test/

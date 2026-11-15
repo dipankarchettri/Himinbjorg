@@ -36,7 +36,7 @@ def run_command(command, repo_root: Path, **_) -> str:
         argv = [project_python(repo_root), "-m", "pytest", *argv[1:]]
     try:
         proc = subprocess.run(
-            argv, cwd=str(repo_root), capture_output=True, text=True,
+            argv, cwd=str(repo_root), capture_output=True, stdin=subprocess.DEVNULL, text=True,
             timeout=TIMEOUT_SECONDS, shell=False,
         )
     except subprocess.TimeoutExpired:

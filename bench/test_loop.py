@@ -218,6 +218,122 @@ def test_failover_on_first_call_is_announced_and_sticks(repo):
     assert first.model in second.fallbacks          # original primary still in the chain
 
 
+def test_sticky_failover_expires_and_retries_the_primary(repo):
+    printed = []
+    base, _ = make_agent(repo, [])
+    client = FailoverClient([([call("read_file", path="calc.py")], ""), ([], "done")])
+    agent = Agent(base.settings, base.privacy, client, base.registry,
+                  printer=lambda *a, **k: printed.append(" ".join(map(str, a))))
+    agent.STICKY_SECONDS = 0.0
+    agent.run("look at calc.py")
+    first, second = client.specs[0], client.specs[1]
+    assert second.model == first.model               # pin expired: primary tried again
+
+
+def _two_model_agent(repo, turns, capable="ollama/c"):
+    import dataclasses
+    base, _ = make_agent(repo, [])
+    settings = dataclasses.replace(base.settings, model_capable=capable)
+    client = FakeClient(turns)
+    return Agent(settings, base.privacy, client, Registry(base.privacy, settings),
+                 printer=lambda *a, **k: None), client
+
+
+def test_half_budget_on_an_unfinished_change_escalates_once(repo):
+    reads = [([call("read_file", path="calc.py", start=i, end=i + 1)], "") for i in range(1, 11)]
+    agent, client = _two_model_agent(repo, reads)
+    agent.run("fix calc.py")                          # max_turns=10: escalates after step 5
+    models = [s.model for s in client.specs]
+    assert models[:5] == ["ollama/b"] * 5
+    assert set(models[5:]) == {"ollama/c"}
+    assert agent.stats.escalations == 1
+
+
+def test_half_budget_never_stops_a_run_with_nowhere_to_go(repo):
+    reads = [([call("read_file", path="calc.py", start=i, end=i + 1)], "") for i in range(1, 8)]
+    agent, client = _two_model_agent(repo, reads, capable="ollama/b")
+    answer = agent.run("fix calc.py")
+    assert "half the" not in answer
+    assert len(client.specs) > 5
+    assert agent.stats.escalations == 0
+
+
+def test_denials_are_binding_and_two_end_the_task(repo, monkeypatch):
+    asked = []
+    monkeypatch.setattr(policy, "_read_tty_response", lambda p: asked.append(p) or ("n", ""))
+    edits = [([call("apply_patch", path="calc.py", find="return a / b", replace=f"return {i}")], "")
+             for i in range(5)]
+    agent, client = make_agent(repo, edits, auto_approve=False)
+    answer = agent.run("fix divide in calc.py")
+    assert len(asked) == 2
+    assert answer.startswith("stopped: you declined 2 actions")
+    assert any("Do not retry it" in c for c in tool_results(agent))
+    assert "return a / b" in (repo / "calc.py").read_text()
+
+
+def test_stats_snapshot_does_not_share_lists_with_the_live_stats(repo):
+    agent, _ = make_agent(repo, [])
+    before = agent.stats.as_dict()
+    agent.stats.request_ids.append("r1")
+    agent.stats.tier_calls["T1_CHEAP"] = 1
+    assert before["request_ids"] == [] and before["tier_calls"] == {}
+
+
+class _Resp:
+    def __init__(self, body):
+        self._body = body
+
+    def json(self):
+        if isinstance(self._body, Exception):
+            raise self._body
+        return self._body
+
+
+class _Http402(Exception):
+    status_code = 402
+
+    def __init__(self, body):
+        super().__init__("402")
+        self.response = _Resp(body)
+
+
+# Both bodies as the gateway returned them on 2026-11-15.
+BUDGET_402 = {"type": "budget_exceeded", "is_bifrost_error": False, "status_code": 402,
+              "error": {"message": "Budget exceeded: vk_model_config * budget exceeded"},
+              "extra_fields": {"error_type": "policy_budget_exceeded"}}
+PROVIDER_402 = {"is_bifrost_error": False, "status_code": 402,
+                "error": {"code": "402", "message": "This request requires more credits"}}
+
+
+def test_a_provider_402_is_not_reported_as_the_users_budget():
+    spec = llm_mod.CallSpec(messages=[], model="openrouter/x", fallbacks=[], tools=[])
+    with pytest.raises(llm_mod.BudgetExceeded):
+        llm_mod.LLMClient._raise_mapped(_Http402(BUDGET_402), spec)
+    with pytest.raises(llm_mod.ProviderPaymentRequired):
+        llm_mod.LLMClient._raise_mapped(_Http402(PROVIDER_402), spec)
+    with pytest.raises(llm_mod.BudgetExceeded):          # unreadable body: as before
+        llm_mod.LLMClient._raise_mapped(_Http402(ValueError("no body")), spec)
+
+
+class PaymentClient(FakeClient):
+    def call(self, spec):
+        if not self.specs:
+            self.specs.append(spec)
+            raise llm_mod.ProviderPaymentRequired("requires more credits")
+        return super().call(spec)
+
+
+def test_provider_out_of_credit_downgrades_with_an_honest_message(repo):
+    printed = []
+    base, _ = make_agent(repo, [])
+    client = PaymentClient([([], "done")])
+    agent = Agent(base.settings, base.privacy, client, base.registry,
+                  printer=lambda *a, **k: printed.append(" ".join(map(str, a))))
+    assert agent.run("fix calc.py") == "done"
+    assert any("has no credit" in p and "your budget is fine" in p for p in printed)
+    assert not any("Budget exceeded" in p for p in printed)
+
+
 def test_stepped_pruning_keeps_the_prefix_stable():
     from agent.memory.ledger import Ledger, LedgerEntry
     led = Ledger(pruning_enabled=True, keep_recent_turns=3, prune_step=4)

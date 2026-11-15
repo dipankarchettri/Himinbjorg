@@ -142,7 +142,7 @@ def grep(pattern: str, repo_root: Path, path: str | None = None, **_) -> str:
         cmd += ["--exclude-dir", d]
     cmd += [pattern, target]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        proc = subprocess.run(cmd, capture_output=True, stdin=subprocess.DEVNULL, text=True, timeout=20)
     except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
         return f"ERROR: grep failed: {exc}"
     out = proc.stdout.splitlines()

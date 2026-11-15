@@ -196,7 +196,7 @@ directory with a per-scenario log, the JSON artifacts, and `SUMMARY.md`.
 | Scenario | Script | Make target | Status |
 | --- | --- | --- | --- |
 | 0 unit tests | `bench/test_*.py` | `make test` | 107 passing |
-| 1 token efficiency | `bench/benchmark.py` | `make bench` | 57/70 vs 31/70 passed, 84% fewer tokens per completed task (pooled, see docs/10-DEMO.md) |
+| 1 token efficiency | `bench/benchmark.py` | `make bench` | 57/70 vs 31/70 passed, 84% fewer tokens per completed task (pooled, table below) |
 | 2 failover | `bench/failover_scenario.py` | `make scenario-failover` | PASS |
 | 3 budget | `bench/budget_scenario.py` | `make scenario-budget` | PASS (synthetic pricing, disclosed) |
 | 4 privacy | `bench/privacy_scenario.py` | `make scenario-privacy` | PASS, 6 structural checks |
@@ -248,3 +248,34 @@ fixes are in `docs/VERIFIED.md`, and the current result is in the table above.
 Either the tasks grow until sessions are long enough for the levers to
 matter, or the reported saving stays small and honest. Shrinking the
 baseline to manufacture a ratio is not an option.
+
+## Scenario 1, pooled results
+
+Two full runs on the final code, pooled to 10 runs per cell,
+`qwen2.5:32b-instruct`, sampling temperature 0.7 so runs are independent.
+Evidence: `evidence/scenario1-benchmark-20261115-034421.json` and
+`evidence/20261115-050124/`. Seven tasks: four small ones on a 3-file
+repository, three on a 21-file shop library with a 13-test suite.
+
+```
+                         passed              tokens per completed task
+task                naive   optimized        naive     optimized   saving
+zero_check          10/10     10/10          7,676       6,185      19%
+add_power            6/10     10/10          6,400       3,373      47%
+rename_symbol        8/10      8/10         17,606       8,232      53%
+docstring            4/10      9/10          8,396       3,851      54%
+shop_bulk_bug        3/10     10/10        168,373      25,221      85%
+shop_rename          0/10     10/10              -       7,747       -
+shop_freeship        0/10      0/10              -           -       -
+ALL                 31/70     57/70         88,196      13,913      84%
+```
+
+Wall time per run on the shop tasks: 195 s naive, 32 s optimized. An
+identical re-run of `add_power` went from 4,402 provider tokens to 0, every
+call served from the gateway cache by exact hash.
+
+No per-lever ranking is claimed: two ablations (one lever off at a time)
+could not separate individual levers from sampling noise at 3 repeats, so
+the levers are claimed jointly. Cloud runs (Gemini, Claude) are in
+`docs/VERIFIED.md`.
+

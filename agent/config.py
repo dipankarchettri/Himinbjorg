@@ -93,7 +93,7 @@ class Settings:
     # Unlocks the gateway's /api surface for per-request log records (used
     # for the session cost line). Empty disables the lookup.
     bifrost_setup_token: str = ""
-    prune_step: int = 1
+    prune_step: int = 4         # measured: stable prefix, fewer prompt-cache writes (VERIFIED.md)
     context_budget: int = 28_000
 
     @property
@@ -123,6 +123,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-loop-limits", action="store_true")
     p.add_argument("--naive", action="store_true", help="Disable every token lever (benchmark baseline arm)")
     p.add_argument("--trace-dir", default=None)
+    p.add_argument("--serve", action="store_true",
+                   help="Run as the editor server (JSON lines on stdio), for the VS Code extension")
     return p
 
 
@@ -160,7 +162,7 @@ def load(argv: list[str] | None = None) -> Settings:
         vk_confidential=env.get("BIFROST_VK_CONFIDENTIAL", "sk-bf-confidential-key"),
         tavily_api_key=env.get("TAVILY_API_KEY") or None,
         bifrost_setup_token=env.get("BIFROST_SETUP_TOKEN", ""),
-        prune_step=int(env.get("AGENT_PRUNE_STEP", "1")),
+        prune_step=int(env.get("AGENT_PRUNE_STEP", "4")),
         context_budget=int(env.get("AGENT_CONTEXT_TOKENS", "28000")),
         repo_root=repo_root,
         confidential=is_confidential(repo_root, args.confidential),

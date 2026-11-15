@@ -1,0 +1,134 @@
+{
+  "name": "himinbjorg",
+  "displayName": "Himinbjorg",
+  "description": "Token-efficient coding agent on the Bifrost LLM gateway, with diff-previewed approvals, failover, budgets and local-only confidential mode.",
+  "version": "0.1.0",
+  "publisher": "essential-engineers",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dipankarchettri/Himinbjorg.git",
+    "directory": "extension"
+  },
+  "homepage": "https://github.com/dipankarchettri/Himinbjorg#vs-code",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "coding agent",
+    "bifrost",
+    "llm",
+    "ollama",
+    "token efficiency"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "The agent reads and, with your approval, edits files and runs commands in the workspace."
+    }
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "himinbjorg",
+          "title": "Himinbjorg",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "himinbjorg": [
+        {
+          "type": "webview",
+          "id": "himinbjorg.chat",
+          "name": "Agent"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "himinbjorg.ask",
+        "title": "Ask the agent",
+        "category": "Himinbjorg"
+      },
+      {
+        "command": "himinbjorg.askAboutSelection",
+        "title": "Ask about the selection",
+        "category": "Himinbjorg"
+      },
+      {
+        "command": "himinbjorg.stop",
+        "title": "Stop the running task",
+        "category": "Himinbjorg"
+      },
+      {
+        "command": "himinbjorg.undo",
+        "title": "Undo the agent's last edit",
+        "category": "Himinbjorg"
+      },
+      {
+        "command": "himinbjorg.cost",
+        "title": "Show session cost",
+        "category": "Himinbjorg"
+      },
+      {
+        "command": "himinbjorg.reset",
+        "title": "New conversation",
+        "category": "Himinbjorg"
+      },
+      {
+        "command": "himinbjorg.restart",
+        "title": "Restart the agent",
+        "category": "Himinbjorg"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "himinbjorg.askAboutSelection",
+          "when": "editorHasSelection",
+          "group": "himinbjorg"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Himinbjorg",
+      "properties": {
+        "himinbjorg.command": {
+          "type": "string",
+          "default": "himin",
+          "scope": "machine",
+          "description": "Path to the himin executable (for example /path/to/himinbjorg/.venv/bin/himin). Machine scope: a workspace cannot change it."
+        },
+        "himinbjorg.confidential": {
+          "type": "boolean",
+          "default": false,
+          "description": "Process this workspace with local models only. A .agent-confidential file in the repository has the same effect. If any settings level turns this on, it is on."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p .",
+    "test": "npm run compile && node out/test/protocol.test.js",
+    "package": "vsce package --out himinbjorg.vsix",
+    "test:vscode": "npm run compile && node out/test/vscode/run.js",
+    "test:flow": "npm run compile && node out/test/vscode/run.js flow"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/vscode": "1.95.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "4.1.0",
+    "typescript": "5.9.3"
+  }
+}

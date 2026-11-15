@@ -198,6 +198,19 @@ def _read_tty_response(prompt: str) -> tuple[str, str]:
 
 EDIT_TOOLS = ("apply_patch", "write_file", "rename_symbol")
 
+# The operator channel used instead of the terminal, set once by the IDE
+# server (agent/server.py). It receives only what the gate itself built:
+# the tool, the resolved arguments and the dry-run diff, never any
+# conversation text, so the property above holds: the gate cannot be
+# argued with because nothing it reads came from the model. The far end
+# is a native modal dialog in the editor, answered by a person.
+_operator: Callable[[dict], tuple[str, str]] | None = None
+
+
+def set_operator_channel(fn: Callable[[dict], tuple[str, str]] | None) -> None:
+    global _operator
+    _operator = fn
+
 
 def gate(spec: ToolSpec, resolved_args: dict, *, auto_approve: bool = False,
          injection_markers_seen: bool = False, preview: str | None = None,
@@ -256,16 +269,25 @@ def gate(spec: ToolSpec, resolved_args: dict, *, auto_approve: bool = False,
     edit = spec.name in EDIT_TOOLS
     lines.append("  Approve? [y/N" + ("/a = all edits this session" if edit else "") + "] ")
 
-    answer, failure = _read_tty_response("\n".join(lines))
+    if _operator is not None:
+        answer, failure = _operator({
+            "tool": spec.name, "edit": edit, "args": display,
+            "path": display.get("path"), "diff": preview,
+            "injection_markers_seen": injection_markers_seen,
+        })
+        answer = (answer or "").strip().lower()
+    else:
+        answer, failure = _read_tty_response("\n".join(lines))
     approve_all = edit and answer in ("a", "all")
     approved = answer in ("y", "yes") or approve_all
     if failure:
         # Never deny silently: a silent refusal is indistinguishable from a
         # working gate, and that ambiguity hides real breakage.
-        sys.stderr.write(
-            f"\n  [approval] {spec.name} DENIED: {failure}\n"
-            f"  [approval] Run the agent directly in a terminal to approve:\n"
-            f"  [approval]   .venv/bin/python -m agent.main \"<task>\" --repo <dir>\n\n")
+        sys.stderr.write(f"\n  [approval] {spec.name} DENIED: {failure}\n")
+        if _operator is None:
+            sys.stderr.write(
+                f"  [approval] Run the agent directly in a terminal to approve:\n"
+                f"  [approval]   .venv/bin/python -m agent.main \"<task>\" --repo <dir>\n\n")
     d = GateDecision(
         spec.name, spec.permission.value,
         "APPROVED" if approved else "DENIED",

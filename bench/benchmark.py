@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import shutil
 import sys
 import time
@@ -24,7 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from agent import trace                                    # noqa: E402
+from agent import telemetry, trace                         # noqa: E402
 from agent.config import LeverFlags, Settings, load_dotenv  # noqa: E402
 from agent.llm import LLMClient                             # noqa: E402
 from agent.loop import Agent                                # noqa: E402
@@ -53,6 +54,10 @@ class RunResult:
     tool_calls: int = 0
     approvals: int = 0
     wall_seconds: float = 0.0
+    cost_usd: float | None = None   # gateway-priced; None when logs are unavailable
+    cost_logs: str = ""             # "found/requests"
+    prompt_cache_read: int = 0      # provider prompt-cache reads (Anthropic bills a tenth)
+    prompt_cache_write: int = 0
     tiers: dict = field(default_factory=dict)
     suppressed_rereads: int = 0
     elided_tokens: int = 0
@@ -84,7 +89,7 @@ def build_settings(repo: Path, levers: LeverFlags, env: dict,
         auto_approve=True,
         cache_scope=cache_scope,
         temperature=float(env.get("BENCH_TEMPERATURE", "0.7")),
-        prune_step=int(env.get("AGENT_PRUNE_STEP", "1")),
+        prune_step=int(env.get("AGENT_PRUNE_STEP", "4")),
     )
 
 
@@ -127,8 +132,15 @@ def run_one(task, arm: str, levers: LeverFlags, env: dict, stamp: str,
         res.tool_calls = s.tool_calls
         res.approvals = s.approvals_granted
         res.tiers = dict(s.tier_calls)
+        res.prompt_cache_read = s.prompt_cache_read
+        res.prompt_cache_write = s.prompt_cache_write
         res.suppressed_rereads = agent.files.stats()["suppressed_rereads"]
         res.elided_tokens = agent.ledger.stats()["elided_tokens_estimate"]
+        cost = telemetry.session_cost(s.request_ids, settings.bifrost_base_url,
+                                      env.get("BIFROST_SETUP_TOKEN", ""))
+        if cost is not None:
+            res.cost_usd = round(cost[0], 6)
+            res.cost_logs = f"{cost[1]}/{len(set(s.request_ids))}"
     except Exception as exc:                                # noqa: BLE001
         res.error = f"{type(exc).__name__}: {exc}"[:300]
         traceback.print_exc(file=sys.stderr)
@@ -198,6 +210,27 @@ def summarise(results: list[RunResult]) -> str:
         else:
             delta = "n/a (an arm never passed)"
         rows.append(f"  {label:16} naive {fmt(n):16} optimized {fmt(o):16} {delta}")
+
+    # Dollars, from the gateway's own per-request pricing. Local models are
+    # $0, so on a mixed local/cloud run this is the number that matters.
+    if any(r.cost_usd for r in results):
+        rows += ["", "COST PER COMPLETED TASK: gateway-priced dollars / runs that passed",
+                 "-" * 72]
+        for label, pick in [(t, lambda r, t=t: r.task == t) for t in tasks] + [("ALL", lambda r: True)]:
+            cells = {}
+            for arm in ("naive", "optimized"):
+                runs = [r for r in results if r.arm == arm and pick(r)]
+                passed = sum(1 for r in runs if r.success)
+                spent = sum(r.cost_usd or 0.0 for r in runs)
+                cells[arm] = (spent, passed, len(runs), spent / passed if passed else None)
+            n, o = cells["naive"], cells["optimized"]
+            fmt = lambda c: f"{c[1]}/{c[2]} ${c[3]:.5f}" if c[3] is not None else f"{c[1]}/{c[2]} n/a"
+            if n[3] and o[3] is not None:
+                pct = (1 - o[3] / n[3]) * 100
+                delta = f"{abs(pct):5.1f}% {'cheaper' if pct >= 0 else 'DEARER'}"
+            else:
+                delta = "n/a"
+            rows.append(f"  {label:16} naive {fmt(n):18} optimized {fmt(o):18} {delta}")
     return "\n".join(rows)
 
 
@@ -213,7 +246,11 @@ def main() -> int:
                          "whose task success rate is well below 1.0.")
     args = ap.parse_args()
 
-    env = {**load_dotenv(ROOT / ".env")}
+    # The process environment overrides .env for the benchmark's own knobs,
+    # so a cloud run needs no .env edit:
+    #   BENCH_MODEL_CHEAP=gemini/gemini-3.1-flash-lite python bench/benchmark.py
+    env = {**load_dotenv(ROOT / ".env"),
+           **{k: v for k, v in os.environ.items() if k.startswith(("BENCH_", "AGENT_"))}}
     tasks = TASKS if args.tasks == "all" else [TASKS_BY_ID[t] for t in args.tasks.split(",")]
     arms = args.arms.split(",")
     stamp = time.strftime("%Y%m%d-%H%M%S")

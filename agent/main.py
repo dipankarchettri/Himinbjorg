@@ -38,6 +38,9 @@ def banner(settings, privacy, registry) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if "--serve" in (sys.argv[1:] if argv is None else argv):
+        from .server import main as serve_main
+        return serve_main(sys.argv[1:] if argv is None else argv)
     settings = config_mod.load(argv)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     trace.init(settings.trace_dir / f"session-{stamp}.jsonl")

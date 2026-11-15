@@ -59,6 +59,15 @@ class BudgetExceeded(GatewayError):
     """HTTP 402. The gateway refused before reaching a provider."""
 
 
+class ProviderPaymentRequired(GatewayError):
+    """HTTP 402 from a provider (for example, its account has no credit).
+
+    Not the user's budget. Measured 2026-11-15: OpenRouter returned 402
+    "requires more credits" through the gateway; before this class, the
+    agent would have reported it as the user's budget being exhausted.
+    """
+
+
 class RateLimited(GatewayError):
     """HTTP 429."""
 
@@ -249,6 +258,27 @@ class LLMClient:
         return result
 
     @staticmethod
+    def _is_budget_refusal(exc: Exception) -> bool:
+        """Was this 402 the gateway's budget, or a provider's payment error?
+
+        Both arrive as 402 with is_bifrost_error false (verified
+        2026-11-15), so that flag cannot tell them apart. The governance
+        refusal carries type "budget_exceeded" and an error_type naming
+        the budget; a provider's own 402 carries neither. The SDK keeps
+        only the inner "error" object, so the full body is read from the
+        response. Unreadable body: assume the budget, as before.
+        """
+        try:
+            full = exc.response.json()          # type: ignore[attr-defined]
+        except Exception:                       # noqa: BLE001
+            return True
+        if not isinstance(full, dict):
+            return True
+        kind = str(full.get("type") or "")
+        etype = str((full.get("extra_fields") or {}).get("error_type") or "")
+        return "budget" in kind or "budget" in etype
+
+    @staticmethod
     def _raise_mapped(exc: Exception, spec: CallSpec) -> None:
         """Branch on status code only.
 
@@ -258,7 +288,9 @@ class LLMClient:
         status = getattr(exc, "status_code", None)
         detail = str(exc)[:400]
         if status == 402:
-            raise BudgetExceeded(detail) from exc
+            if LLMClient._is_budget_refusal(exc):
+                raise BudgetExceeded(detail) from exc
+            raise ProviderPaymentRequired(detail) from exc
         if status == 429:
             raise RateLimited(detail) from exc
         if status == 403:

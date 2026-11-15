@@ -453,8 +453,9 @@ claimed only jointly.
 
 Two identical 5-repeat proof runs gave 39% and 75% fewer tokens per
 completed task overall. The gap is single runaway runs (one naive
-zero_check run: 197,305 tokens, 18 turns). The demo quotes both packs
-pooled to 10 runs per cell, with medians as the typical-run figure.
+zero_check run: 197,305 tokens, 18 turns). The published table
+(`docs/07-EVIDENCE.md`) pools both packs to 10 runs per cell, with
+medians as the typical-run figure.
 
 ## Runaway runs were failed edits (2026-11-15)
 
@@ -610,3 +611,209 @@ third-party text. The tool is registered only when `TAVILY_API_KEY` is set,
 so a keyless install no longer sends a schema the model can only get an
 error from. No trace before this date shows a `web_search` call: the
 benchmark tasks never needed it.
+
+## Cloud providers through Bifrost, checked 2026-11-15
+
+Three keys added: Gemini (Google AI Studio, free tier), OpenRouter and
+Groq (free tier). Every model below was probed through the gateway with
+a tool-calling request, and priced by the gateway's own log record.
+
+| Model (as the agent names it) | Tool call | Gateway cost of the probe |
+| --- | --- | --- |
+| `gemini/gemini-3.1-flash-lite` | yes | $0.000043 |
+| `gemini/gemini-3.5-flash-lite` | yes | $0.000064 |
+| `gemini/gemini-3.5-flash` | yes (thinking tokens billed as output) | $0.000591 |
+| `openrouter/anthropic/claude-haiku-5.5` | yes | $0.000064 (equals OpenRouter's billed amount) |
+| `openrouter/anthropic/claude-sonnet-5.5` | yes | $0.001282 |
+| `openrouter/deepseek/deepseek-v4.1-flash` | yes | $0.000094 |
+| `groq/openai/gpt-oss-120b` | yes | $0.000046 |
+| `groq/openai/gpt-oss-20b` | yes | $0.000042 |
+
+Not usable on this key: `gemini-3.8-flash` (no response in 150 s, direct
+to Google as well), `gemini-2.5-flash` / `gemini-2.5-pro` (404, closed to
+new users), the Pro models (429, no free-tier quota), Groq
+`qwen/qwen3.8-27b` (400, tool-call validation failed).
+
+**Prompt caching survives the gateway.** The agent's message-level
+`cache_control` markers, sent through Bifrost to
+`openrouter/anthropic/claude-haiku-5.5` with a 10,421-token prompt:
+call 1 wrote 10,417 cached tokens, call 2 read 10,417. The same prompt
+without markers cached nothing. Bifrost's OpenRouter page says both that
+the markers pass through and that they are removed; the first is what
+happens on chat completions.
+
+**Failover with real provider failures**, `bench/failover_scenario.py`
+with `FAILOVER_PRIMARY` / `FAILOVER_CLOUD`:
+
+- `gemini/gemini-pro-latest` (real 429, quota) -> `gemini/gemini-3.1-flash-lite`, fallback index 1. PASS.
+- `gemini/gemini-pro-latest` (real 429) -> `groq/openai/gpt-oss-120b` -> `openrouter/anthropic/claude-haiku-5.5` -> local: served by Groq at index 1, cross-provider. PASS.
+
+The scenario's `max_tokens` went from 16 to 200: gpt-oss spends tokens
+reasoning first, and at 16 it returned an empty reply.
+
+## Benchmark on Gemini, 2026-11-15
+
+`BENCH_MODEL_CHEAP=gemini/gemini-3.1-flash-lite`,
+`BENCH_MODEL_CAPABLE=gemini/gemini-3.5-flash`, local tier
+`qwen2.5:32b-instruct`, 7 tasks x 3 runs per arm, T=0.7. Evidence:
+`evidence/scenario1-benchmark-20261115-161010.json`.
+
+| | naive (everything on 3.5 Flash) | optimized |
+| --- | --- | --- |
+| Passed | 16/21 | 18/21 |
+| Tokens per completed task | 58,942 | 19,395 (67% fewer) |
+| Gateway cost per completed task | $0.01098 | $0.00260 (76% cheaper) |
+
+Per task, the optimized arm was cheaper on every task both arms solved;
+it used more tokens on `shop_bulk_bug` (routed to the free local tier,
+$0). The naive arm failed `docstring` 0/3; the optimized arm failed
+`shop_freeship` 0/3, which the naive arm solved 2/3.
+
+Conditions, disclosed: the key is on Gemini's free tier, so the dollar
+figures are the gateway's list-price accounting, not a bill. 30 of 336
+calls hit a real 429 and were absorbed by the fallback chain (3.5 Flash
+to Flash-Lite 11 times in the naive arm, Flash-Lite to local 5 times);
+no run failed because of it.
+
+**Two defects found by this run, both fixed** (`agent/loop.py`, tests in
+`bench/test_loop.py`):
+
+1. Sticky failover was session-long. One 429 (retry_after 34 s) pinned
+   the cheap tier to the local model for the rest of a `shop_freeship`
+   run. The pin now lasts `STICKY_SECONDS = 60`, then the primary is
+   tried again, and the return is announced ("Provider restored").
+2. Escalation fired only when stuck (3 turns without progress, or 5
+   failed edits). On `shop_freeship` the cheap model kept making
+   progress that did not converge, and ran out of turns. A mutating task
+   now escalates once when half the turn budget is spent. It never stops
+   a run: with no different model above (local-only, confidential), it
+   continues. With all tiers on one local model, as in the published
+   local benchmark, neither change has any effect.
+
+**Privacy re-checked with all three cloud providers enabled** on the
+gateway: `bench/privacy_scenario.py` PASS (6 structural checks, 8 calls,
+all served by `ollama/qwen2.5:32b-instruct`), and the confidential
+virtual key gets HTTP 403 from the gateway for
+`gemini/gemini-3.1-flash-lite`, `openrouter/anthropic/claude-haiku-5.5`
+and `groq/openai/gpt-oss-20b`. The new providers are allowed on the demo
+key only.
+
+**`shop_freeship` rerun with both fixes** (optimized arm, 3 runs, same
+Gemini models; `evidence/scenario1-benchmark-20261115-171309.json`):
+1/3 passed, up from 0/3. The half-budget escalation fired at turn 9 in
+all three runs, but the escalation target was not available: every one
+of the 5 calls that asked for `gemini-3.5-flash` got a 429 and was
+served by Flash-Lite (3) or local (2), and the 60 s pins sent the other
+T2 calls to the same fallbacks. After the full benchmark the free-tier
+quota for 3.5 Flash was spent. The mechanism is verified; whether a
+reachable capable tier solves this task is measured on Claude below.
+
+## VS Code extension, checked 2026-11-15
+
+`extension/` (TypeScript, VS Code 1.95+) drives `himin --serve`
+(`agent/server.py`, JSON lines on stdio).
+
+- `bench/test_server.py`, 7 tests against a scripted model: approve
+  writes the dry-run diff that was shown; deny writes nothing; an answer
+  for another id is ignored; an editor that disconnects mid-approval is a
+  denial; commands answer on the channel; a stray `print` goes to stderr,
+  not the protocol stream; a command the agent runs reads `''` from
+  stdin even when the server's stdin holds an approval.
+- `extension/src/test/protocol.test.ts`, end to end against the real
+  agent and gateway: ready, a read-only answer with stats, an edit that
+  arrives as an approval request with the diff, a forged id ignored, a
+  denial that leaves the file byte-identical, undo. PASS.
+- `extension/src/test/vscode/`, inside a downloaded VS Code: activation,
+  all commands registered, the agent view opens, the machine-scoped
+  `himinbjorg.command` starts the agent, `cost` and `undo` answered. PASS.
+
+Found by the end-to-end test: after one denial the model retried the
+edit, then tried `run_command` and `write_file`, six prompts in all. The
+denial message now says not to retry or work around it, and a second
+denial in a task ends the task (`MAX_DENIALS = 2`): two prompts.
+
+Also fixed for the server, and good for the CLI: child processes
+(`run_command`, git, grep) inherited the agent's stdin. They now get
+`/dev/null`.
+
+**Installed and run in VS Code 1.146** (the `.vsix` installed with
+`code --install-extension`, then `npm run test:flow` loading that
+installed copy; the input box and the modal answer are intercepted at
+the vscode API, everything else is the real editor, agent and gateway):
+
+| Flow | Observed |
+| --- | --- |
+| Read-only question | answer in the view; "2,817 tokens (0 cached) · $0.0008 · gemini/gemini-3.1-flash-lite"; status bar "Himinbjorg $0.0008"; no dialog |
+| Edit, denied | modal "Himinbjorg wants to run apply_patch on calc.py" with Approve / Approve all edits this session; the dry-run diff open beside it as a `diff` document; file byte-identical; second denial ended the task |
+| Edit, approved | one dialog; `calc.py` changed; "approved" logged in the view |
+| Undo | "reverted calc.py"; file byte-identical to the original |
+| Cost | session tokens and $ from the gateway |
+| Confidential setting + restart | CONFIDENTIAL mode, no `web_search`, lock in the status bar |
+
+Two bugs found this way, both fixed: per-task cost was never shown in
+the REPL or the editor (`Stats.as_dict` returned the live
+`request_ids` list, so the before/after slice was always empty;
+regression test in `bench/test_loop.py`), and the diff tab could stay
+open after the last answer (now closed before the answer is sent).
+Not checked by automation: how the webview and the modal look.
+
+**Checked by eye** in a normally launched VS Code 1.146 (nested Xephyr
+display, driven with keystrokes and clicks; screenshots in
+`docs/images/`): the Agent view, the command-palette Ask, the real
+approval dialog with the diff beside it, Approve, Cancel, two denials
+ending the task, Undo restoring the file byte-for-byte, and a repeated
+task replayed entirely from the gateway cache at $0. Found and fixed on
+the way: an approval whose dialog fails was never answered (now a
+denial, with a flow-test step); an Ask from the palette did not reveal
+the Agent view; New did not clear the transcript; commands showed as a
+JSON array; the ready line used the alert style and a full path; the
+secondary buttons had no border in the default theme.
+
+## Claude via OpenRouter: prompt caching and the prune step, 2026-11-15
+
+Optimized arm only, `BENCH_MODEL_CHEAP=openrouter/anthropic/claude-haiku-5.5`,
+`BENCH_MODEL_CAPABLE=openrouter/anthropic/claude-sonnet-5.5`, local tier
+`qwen2.5:32b-instruct`, 7 tasks x 3 runs, once with `AGENT_PRUNE_STEP=1`
+(`evidence/scenario1-benchmark-20261115-174318.json`) and once with `4`
+(`...-175123.json`).
+
+**Contamination, found in the gateway logs.** Part-way through the
+second pass, OpenRouter answered 402 "This request requires more
+credits": the account had no purchased credit (`total_credits: 0`) and
+had used its small free allowance ($0.199 in all). The gateway's
+fallback chain absorbed it (Claude -> local), so no run crashed, but
+`shop_freeship` (all 3 runs) and one `shop_rename` call in the second
+pass ran on the local model. Most other tasks were routed to the free
+local tier by design and never touched Claude. Only `zero_check` and
+`add_power` ran fully on Claude in both passes; they are the comparison.
+
+Per Claude call, from the trace (`cached_read_tokens`,
+`cached_write_tokens`), with Anthropic's price shape (read 0.1x, write
+1.25x of input):
+
+| Task | Prune step | Claude calls | Prompt tokens | Read from cache | Written to cache | Input cost vs no caching |
+| --- | --- | --- | --- | --- | --- | --- |
+| zero_check | 1 | 14 | 35,842 | 71.0% | 28.9% | 43.3% |
+| zero_check | 4 | 12 | 29,368 | 81.4% | 18.5% | 31.3% |
+| add_power | 1 | 20 | 66,034 | 58.8% | 41.2% | 57.4% |
+| add_power | 4 | 28 | 103,640 | 71.2% | 28.7% | 43.1% |
+
+Prompt caching through the gateway roughly halves Claude input cost; a
+stable prefix (step 4) removes about another quarter of what is left,
+because fewer turns rewrite the cache. Gateway cost per completed task:
+zero_check $0.00105 -> $0.00075 (3/3 both); add_power $0.00251 ->
+$0.00292 (3/3 both; one step-4 run escalated to Sonnet at half budget,
+5 calls). The earlier local calibration showed no difference between 1
+and 4. So the default is now 4 (`agent/config.py`, and the benchmark,
+so it measures the product as shipped); the published local numbers
+used 1.
+
+**Found by this run, fixed:** a provider's 402 and the gateway's budget
+402 were treated alike. Both arrive with `is_bifrost_error: false`; the
+budget refusal carries `type: "budget_exceeded"` and
+`error_type: "policy_budget_exceeded"`, the provider's does not. The
+agent now raises `ProviderPaymentRequired` for the second, says "the
+provider has no credit; your budget is fine", and drops a tier
+(`agent/llm.py`, `agent/loop.py`; tests with both real bodies in
+`bench/test_loop.py`). Before, an exhausted provider with no working
+fallback would have been reported as the user's budget.

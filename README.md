@@ -1,6 +1,6 @@
 # Himinbjorg
 
-A token-efficient CLI coding agent on the [Bifrost](https://github.com/maximhq/bifrost)
+A token-efficient coding agent, as a CLI and a VS Code extension, on the [Bifrost](https://github.com/maximhq/bifrost)
 LLM gateway. It fixes bugs, adds features and refactors real repositories
 while spending as few tokens as it can, and it enforces failover, per-user
 budgets, code privacy and action approval in the harness, not in the prompt.
@@ -35,11 +35,14 @@ Each PS01 requirement, how it is enforced, and where it is proven:
 
 | Requirement | How it is enforced | Proof |
 | --- | --- | --- |
-| **Reliability**: survive outages and rate limits, say which model took over | Bifrost fallback chain (OpenAI -> Anthropic -> local). The agent announces every fallback, including on the first call, and sticks to the working model for the rest of the session | Scenario 2, [`bench/failover_scenario.py`](bench/failover_scenario.py) |
+| **Reliability**: survive outages and rate limits, say which model took over | Bifrost fallback chains across providers (OpenAI, Anthropic, Gemini, Groq, OpenRouter, then local). The agent announces every fallback, including on the first call, pins the working model for 60 s, then retries the primary and says when it is back. A provider out of credit (its own 402) drops that tier without touching your budget | Scenario 2, [`bench/failover_scenario.py`](bench/failover_scenario.py) |
 | **Budget**: per-user limits enforced before the model call | A Bifrost governance budget per virtual key returns 402 before any provider is reached. The agent drops a tier, then stops and shows the quota | Scenario 3, [`bench/budget_scenario.py`](bench/budget_scenario.py) |
 | **Privacy**: confidential repos stay on local models, whatever the prompt says | A `.agent-confidential` file or `--confidential` selects a local-only virtual key with an empty fallback chain, no web search and no cache. An egress check before every HTTP call refuses any non-local model | Scenario 4, [`bench/privacy_scenario.py`](bench/privacy_scenario.py) |
-| **Approval**: reads are free; writes, shell and git need explicit approval | A gate that takes no conversation input asks on the terminal and shows the exact diff. Text in files or prompts cannot grant anything | Scenario 5, [`bench/approval_scenario.py`](bench/approval_scenario.py), plus `make gate-check` |
+| **Approval**: reads are free; writes, shell and git need explicit approval | A gate that takes no conversation input asks on the terminal, or in a VS Code modal dialog, and shows the exact diff. Two denials stop the task. Text in files or prompts cannot grant anything | Scenario 5, [`bench/approval_scenario.py`](bench/approval_scenario.py), plus `make gate-check` |
 | **Fewer tokens, same correctness** | Eight stacked levers, each measured against an all-off baseline on the same binary | Scenario 1, [`bench/benchmark.py`](bench/benchmark.py) |
+
+It runs in a terminal (`himin`) or in VS Code, where approvals are native
+dialogs beside the exact diff (see [VS Code](#vs-code)).
 
 Day-to-day features: an interactive session that keeps context between
 tasks, diff previews at every approval, `/undo` for the agent's last edit,
@@ -61,6 +64,14 @@ From the committed evidence pack, all 7 stages PASS:
 | 4 privacy | PASS: 6 structural checks under an adversarial prompt |
 | 5 approval | PASS automated; the interactive half verified by a human |
 
+On cloud models (`docs/VERIFIED.md` has the full tables and conditions):
+
+| Run | Result |
+| --- | --- |
+| Gemini, 7 tasks x 3 runs per arm (Flash-Lite cheap, 3.5 Flash capable, free tier) | 18/21 vs 16/21 passed; 67% fewer tokens and 76% lower gateway-priced cost per completed task than everything on 3.5 Flash |
+| Claude Haiku via OpenRouter, prompt caching | 59-81% of Claude prompt tokens read from cache; input cost 31-57% of uncached. A stable prefix (`AGENT_PRUNE_STEP=4`, now the default) cut the remainder by about a quarter |
+| Failover with real provider errors | Gemini Pro 429 -> Groq gpt-oss-120b, cross-provider, attributed |
+
 Disclosed caveats: the budget scenario uses synthetic pricing for local
 models; one task (`shop_freeship`) is solved by neither arm; and the first
 run of the 21-file tasks went the other way (optimized 1/15, naive 8/15).
@@ -69,28 +80,33 @@ What changed after that run, and why, is in
 
 ## Quick start
 
-Requirements: Docker, Python 3.11+, and [Ollama](https://ollama.com) on the
-host. A GPU that fits a 32B model is recommended. Cloud provider keys are
-optional.
+Requirements: Docker with Compose, Python 3.11+, and
+[Ollama](https://ollama.com) on the host. A GPU that fits a 32B model is
+recommended. Cloud provider keys are optional: with a Gemini, Groq or
+OpenRouter key you can skip the 32B model and set the cloud tiers in `.env`
+(see [Configuration](#configuration)). The VS Code extension also needs
+Node.js 22+ and the `code` command on your `PATH`.
 
 ```sh
-git clone <this-repo> himinbjorg && cd himinbjorg
+git clone https://github.com/dipankarchettri/Himinbjorg.git himinbjorg && cd himinbjorg
 ollama pull qwen2.5:32b-instruct     # local coding model, about 20 GB
 ollama pull qwen2.5:7b-instruct      # used by the failover and budget scenarios
 cp .env.example .env                 # provider keys optional
 make venv                            # .venv with the agent installed
 make up                              # Bifrost on :8099 + Redis Stack
-make test                            # 109 unit tests, no gateway needed
+make test                            # 123 unit tests, no gateway needed
 make agent TASK="what does divide() do wrong?" REPO=bench/seed
 ```
 
 ## Usage
 
-Put `.venv/bin` on your `PATH` (or symlink `.venv/bin/himin`), copy your
-settings to the user config directory, then run it from any repository:
+Put `himin` on your `PATH`, copy your settings to the user config
+directory, then run it from any repository. The gateway must be up
+(`make up`) whenever the agent runs.
 
 ```sh
-mkdir -p ~/.config/himinbjorg
+mkdir -p ~/.local/bin ~/.config/himinbjorg
+ln -s "$PWD/.venv/bin/himin" ~/.local/bin/himin   # from the clone
 cp .env ~/.config/himinbjorg/env
 cd ~/code/some-project
 himin                                               # interactive session
@@ -121,6 +137,52 @@ you, since it would write nothing.
 `himin --help` lists the flags, including `--naive` and the per-lever
 `--no-*` switches used by the benchmark.
 
+### VS Code
+
+Install the agent and start the gateway first (Quick start and Usage
+above). Then either build the extension from the clone:
+
+```sh
+make extension                                   # builds extension/himinbjorg.vsix
+code --install-extension extension/himinbjorg.vsix
+```
+
+or download `himinbjorg.vsix` from the
+[GitHub releases](https://github.com/dipankarchettri/Himinbjorg/releases)
+and install it with the same `code --install-extension` command (or
+**Extensions: Install from VSIX...** in the command palette).
+
+Then:
+
+1. Open **Settings**, search for **Himinbjorg: Command**, and set it to the
+   full path of `himin`, for example `/home/you/himinbjorg/.venv/bin/himin`.
+   It is a machine setting, so set it under User, not Workspace.
+2. Open a repository folder and trust it (untrusted workspaces are not
+   supported).
+3. Click the Himinbjorg icon in the activity bar and type a task, or run
+   **Himinbjorg: Ask the agent** from the command palette.
+
+The extension runs `himin --serve` in that folder and talks to it over JSON
+lines ([`agent/server.py`](agent/server.py)).
+
+![An edit waiting for approval: the exact diff beside a modal dialog](docs/images/vscode-approval.png)
+
+![The same task run again: every call replayed from the gateway cache, $0](docs/images/vscode-cached-replay.png)
+
+- Every edit opens the exact diff beside a modal dialog: Approve, Approve
+  all edits this session, or Cancel (a denial). Commands and git ask every time.
+- Failover, restored providers, escalations and budget downgrades appear
+  as notifications naming the model now serving.
+- The status bar shows the session's gateway-priced cost and a lock in
+  confidential mode. "Ask about the selection" sends a file and line range.
+
+The approval guarantee carries over: approvals come only from the modal
+dialogs, never from the chat view that renders model text; the protocol
+stream carries nothing else; commands the agent runs cannot read its
+stdin; and the command setting is machine-scoped, so a repository's
+`.vscode/settings.json` cannot redirect it. Details in
+[`extension/README.md`](extension/README.md).
+
 ## Configuration
 
 Settings are layered: the install directory's `.env`, then
@@ -133,11 +195,11 @@ read from the target repository, which is treated as untrusted input.
 | `BIFROST_BASE_URL` | Gateway URL, default `http://localhost:8099` |
 | `BIFROST_SETUP_TOKEN` | Unlocks the gateway's log API for per-session cost |
 | `BIFROST_VK_DEMO`, `BIFROST_VK_CONFIDENTIAL` | Per-user virtual keys (budgets live on these) |
-| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Optional cloud providers, read by the gateway container |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY` | Optional cloud providers, read by the gateway container. Gemini, OpenRouter and Groq are verified end to end (`docs/VERIFIED.md`) |
 | `TAVILY_API_KEY` | Optional. Enables the `web_search` tool (Tavily) for library docs and error messages. Without it the tool is not offered; in confidential mode it is never built |
 | `AGENT_MODEL_LOCAL_CODE` | Local coding model, default `ollama/qwen2.5:32b-instruct` |
-| `AGENT_MODEL_CHEAP`, `AGENT_MODEL_CAPABLE` | Optional cloud tiers |
-| `AGENT_PRUNE_STEP` | Set to `4` with cloud models, so the prompt prefix stays stable and provider prompt caching hits |
+| `AGENT_MODEL_CHEAP`, `AGENT_MODEL_CAPABLE` | Optional cloud tiers, e.g. `gemini/gemini-3.1-flash-lite` and `gemini/gemini-3.5-flash`, or `openrouter/anthropic/claude-haiku-5.5` and `openrouter/anthropic/claude-sonnet-5.5` |
+| `AGENT_PRUNE_STEP` | Default `4`: old tool output is pruned in steps, so the prompt prefix stays stable and provider prompt caching hits. On Claude it cut input cost by about a quarter against `1` |
 | `AGENT_CONTEXT_TOKENS` | Keep below the local model's context window, default 28000 for 32k |
 
 The gateway's own configuration (providers, virtual keys, budgets) is
@@ -172,10 +234,11 @@ Details and per-lever measurements:
 ## Testing and proof
 
 ```sh
-make test       # 109 unit tests, no gateway or model needed
+make test       # 123 unit tests, no gateway or model needed
 make gate-check # the approval prompt on a real terminal, no model involved
 make bench      # token benchmark, naive vs optimized
 make proof      # every scenario into evidence/<timestamp>/ with SUMMARY.md (about an hour)
+make extension-test  # extension: end to end against the agent, then inside VS Code
 ```
 
 Individual scenarios: `make scenario-failover`, `scenario-budget`,
@@ -188,6 +251,7 @@ repository, so runs never touch this checkout.
 ```text
 agent/            the agent
   main.py         CLI entry point and interactive session
+  server.py       editor server for the VS Code extension (JSON lines)
   loop.py         turn loop, prompts, escalation, nudges
   llm.py          gateway client, failover attribution, prompt caching
   config.py       settings and confidential-mode resolution
@@ -196,6 +260,7 @@ agent/            the agent
   security/       approval gate and egress policy
   tools/          read, write, shell and git tools, tool registry
 bench/            benchmark, scenarios, unit tests, fixture repositories
+extension/        VS Code extension (TypeScript)
 infra/            docker-compose and Bifrost configuration
 docs/             design, research and verification notes
 evidence/         the committed proof pack
@@ -216,19 +281,21 @@ evidence/         the committed proof pack
 | [docs/07-EVIDENCE.md](docs/07-EVIDENCE.md) | Benchmark design and scenario specs |
 | [docs/08-BUILD-24H.md](docs/08-BUILD-24H.md) | The build schedule |
 | [docs/09-CONFIG-FIXES.md](docs/09-CONFIG-FIXES.md) | Defects in the original gateway config and the fixes |
-| [docs/10-DEMO.md](docs/10-DEMO.md) | Five-minute demo script and the final results table |
 
 ## Known limitations
 
 - **Local tool calling needs an instruct model.** The `qwen2.5-coder` family
   returns tool calls as plain text and cannot drive the agent; use
   `qwen2.5:32b-instruct` or a cloud tier.
-- **Cloud tiers are configured but not benchmarked.** All published numbers
-  come from local models. Real (not synthetic) budget cost and the full
-  T2 -> T1 -> T0 degradation ladder need provider keys.
+- **Cloud runs are small.** Gemini ran 3 runs per cell on a free tier
+  (30 of 336 calls were rate-limited and absorbed by failover); the Claude
+  run was cut short by the OpenRouter account running out of credit. The
+  budget scenario still uses synthetic pricing, and the full
+  T2 -> T1 -> T0 degradation ladder under a budget has not been run.
 - **Capability ceiling.** `shop_freeship` is solved by neither arm; it was
   left untuned on purpose rather than fitted to the benchmark.
-- **CLI only.** There is no IDE extension.
+- **The extension needs the agent installed.** It is a front end for
+  `himin --serve` and the gateway, not a self-contained package.
 
 ## License
 

@@ -2,7 +2,7 @@ VENV    := .venv
 PY      := $(VENV)/bin/python
 COMPOSE := docker compose --env-file .env -f infra/docker-compose.yml
 
-.PHONY: venv up down logs status agent test proof bench gate-check \
+.PHONY: venv up down logs status agent test proof bench gate-check extension extension-test \
         scenario-failover scenario-budget scenario-privacy scenario-approval clean
 
 venv:
@@ -29,7 +29,7 @@ agent:
 	$(PY) -m agent.main "$(TASK)" --repo $(or $(REPO),.)
 
 test:
-	$(PY) -m pytest bench/test_security.py bench/test_write.py bench/test_tasks.py bench/test_loop.py -q
+	$(PY) -m pytest bench/test_security.py bench/test_write.py bench/test_tasks.py bench/test_loop.py bench/test_server.py -q
 
 # Check the approval prompt itself, with no model involved.
 gate-check:
@@ -62,3 +62,13 @@ clean:
 
 scenario-cache:
 	$(PY) bench/cache_scenario.py add_power
+
+# VS Code extension: build extension/himinbjorg.vsix, then
+#   code --install-extension extension/himinbjorg.vsix
+extension:
+	cd extension && npm ci --no-audit --no-fund && npm run package
+
+# End to end against the real agent (needs `make up`), then inside a
+# downloaded VS Code (needs a display).
+extension-test:
+	cd extension && npm test && npm run test:vscode

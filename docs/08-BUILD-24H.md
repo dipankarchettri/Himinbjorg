@@ -136,7 +136,7 @@ the adversarial ones and the most memorable, then 2 and 3.
 
 ## Hours 20-22: Demo and recording (P1)
 
-Rehearse [10-DEMO.md](10-DEMO.md) three times with a timer. Record a full run.
+Rehearse the demo three times with a timer. Record a full run.
 Prepare the fallback video.
 
 Fix only bugs that break the demo. A bug nobody will see is not a bug today.

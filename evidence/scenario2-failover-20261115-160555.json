@@ -1,0 +1,40 @@
+{
+  "scenario": "provider_failover",
+  "passed": true,
+  "http_status": 200,
+  "primary": "gemini/gemini-pro-latest",
+  "fallbacks": [
+    "gemini/gemini-3.1-flash-lite",
+    "ollama/qwen2.5:7b-instruct"
+  ],
+  "routing_info": {
+    "provider": "gemini",
+    "model": "gemini-3.1-flash-lite",
+    "key": "gemini-primary",
+    "is_fallback": true,
+    "primary_provider": "gemini",
+    "primary_model": "gemini-pro-latest",
+    "requested_provider": "gemini",
+    "requested_model": "gemini-pro-latest"
+  },
+  "request_id": "a34c7666-755c-455c-ae70-dfdf1272a958",
+  "headers": {
+    "x-bifrost-request-id": "a34c7666-755c-455c-ae70-dfdf1272a958",
+    "x-bifrost-trace-id": "bcc7d60a4c824c77a8d51d654d0a60e3",
+    "x-bifrost-provider": "gemini",
+    "x-bifrost-original-model": "gemini-pro-latest",
+    "x-bifrost-resolved-model": "gemini-3.1-flash-lite",
+    "x-bifrost-request-type": "chat_completion",
+    "x-bifrost-routing-info-provider": "gemini",
+    "x-bifrost-routing-info-model": "gemini-3.1-flash-lite",
+    "x-bifrost-routing-info-key": "gemini-primary",
+    "x-bifrost-routing-info-is-fallback": "true",
+    "x-bifrost-routing-info-primary-provider": "gemini",
+    "x-bifrost-routing-info-primary-model": "gemini-pro-latest",
+    "x-bifrost-routing-info-requested-provider": "gemini",
+    "x-bifrost-routing-info-requested-model": "gemini-pro-latest",
+    "x-bifrost-fallback-index": "1",
+    "x-bifrost-upstream-latency-ms": "1144.861"
+  },
+  "gateway_log": {}
+}

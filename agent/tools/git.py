@@ -19,7 +19,7 @@ ALLOWED = {
 def _toplevel(repo_root: Path) -> Path | None:
     try:
         proc = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=str(repo_root),
-                              capture_output=True, text=True, timeout=10)
+                              capture_output=True, stdin=subprocess.DEVNULL, text=True, timeout=10)
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return None
     return Path(proc.stdout.strip()).resolve() if proc.returncode == 0 else None
@@ -44,7 +44,7 @@ def git_op(operation: str, repo_root: Path, message: str | None = None, **_) -> 
     else:
         return f"ERROR: unsupported git operation {operation!r}. Allowed: {sorted(ALLOWED) + ['commit']}"
     try:
-        proc = subprocess.run(argv, cwd=str(repo_root), capture_output=True,
+        proc = subprocess.run(argv, cwd=str(repo_root), capture_output=True, stdin=subprocess.DEVNULL,
                               text=True, timeout=30, shell=False)
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
         return f"ERROR: {exc}"
