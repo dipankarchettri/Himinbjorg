@@ -52,7 +52,9 @@ class Registry:
         self.specs: dict[str, ToolSpec] = {}
         self._register_read()
         self._register_mutating()
-        if privacy.external_tools_enabled:
+        # No key, no tool: a schema the model can only get an error from is
+        # wasted prompt tokens on every turn.
+        if privacy.external_tools_enabled and settings.tavily_api_key:
             self._register_search()
 
     # Descriptions are deliberately terse: a tool description is prompt
@@ -124,7 +126,9 @@ class Registry:
     def _register_search(self) -> None:
         self._add(ToolSpec(
             "web_search", Permission.FREE, "Search the web.",
-            _schema("web_search", "Search the web.", {"query": {"type": "string"}}, ["query"]),
+            _schema("web_search", "Search the web for library docs or error messages. "
+                    "Never put code or secrets in the query.",
+                    {"query": {"type": "string"}}, ["query"]),
             partial(search_mod.web_search, api_key=self.settings.tavily_api_key)))
 
     def _add(self, spec: ToolSpec) -> None:

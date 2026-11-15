@@ -153,7 +153,7 @@ def test_confidential_allows_local():
 
 def test_search_tool_is_absent_not_refusing():
     """Absence beats refusal: the model is never told the tool exists."""
-    conf = make_settings(confidential=True)
+    conf = make_settings(confidential=True, tavily_api_key="tvly-test")
     p = PrivacyMode.build(True, conf.vk_standard, conf.vk_confidential)
     reg = Registry(p, conf)
     assert "web_search" not in reg.specs
@@ -162,9 +162,38 @@ def test_search_tool_is_absent_not_refusing():
 
 
 def test_search_tool_present_in_standard_mode():
-    std = make_settings(confidential=False)
+    std = make_settings(confidential=False, tavily_api_key="tvly-test")
     p = PrivacyMode.build(False, std.vk_standard, std.vk_confidential)
     assert "web_search" in Registry(p, std).specs
+
+
+def test_search_tool_absent_without_a_key():
+    std = make_settings(confidential=False)
+    p = PrivacyMode.build(False, std.vk_standard, std.vk_confidential)
+    assert "web_search" not in Registry(p, std).specs
+
+
+def test_search_sends_key_as_bearer_and_labels_results(monkeypatch):
+    import io, json as _json
+    from agent.tools import search
+    seen = {}
+
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def fake_urlopen(req, timeout):
+        seen["auth"] = req.get_header("Authorization")
+        seen["body"] = _json.loads(req.data)
+        return Resp(_json.dumps({"results": [
+            {"title": "t", "url": "u", "content": "x" * 900}]}).encode())
+
+    monkeypatch.setattr(search.urllib.request, "urlopen", fake_urlopen)
+    out = search.web_search("q", api_key="tvly-test")
+    assert seen["auth"] == "Bearer tvly-test"
+    assert "api_key" not in seen["body"]
+    assert out.startswith("Web results (third-party")
+    assert "x" * 401 not in out
 
 
 def test_confidential_fallback_chain_is_empty():

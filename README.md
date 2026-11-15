@@ -43,7 +43,9 @@ Each PS01 requirement, how it is enforced, and where it is proven:
 
 Day-to-day features: an interactive session that keeps context between
 tasks, diff previews at every approval, `/undo` for the agent's last edit,
-and a per-task report of tokens, cache hits and gateway-priced cost.
+a per-task report of tokens, cache hits and gateway-priced cost, and
+[Tavily](https://tavily.com) web search for docs and error messages
+(no approval needed; absent in confidential mode).
 
 ## Results
 
@@ -78,7 +80,7 @@ ollama pull qwen2.5:7b-instruct      # used by the failover and budget scenarios
 cp .env.example .env                 # provider keys optional
 make venv                            # .venv with the agent installed
 make up                              # Bifrost on :8099 + Redis Stack
-make test                            # 107 unit tests, no gateway needed
+make test                            # 109 unit tests, no gateway needed
 make agent TASK="what does divide() do wrong?" REPO=bench/seed
 ```
 
@@ -132,6 +134,7 @@ read from the target repository, which is treated as untrusted input.
 | `BIFROST_SETUP_TOKEN` | Unlocks the gateway's log API for per-session cost |
 | `BIFROST_VK_DEMO`, `BIFROST_VK_CONFIDENTIAL` | Per-user virtual keys (budgets live on these) |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Optional cloud providers, read by the gateway container |
+| `TAVILY_API_KEY` | Optional. Enables the `web_search` tool (Tavily) for library docs and error messages. Without it the tool is not offered; in confidential mode it is never built |
 | `AGENT_MODEL_LOCAL_CODE` | Local coding model, default `ollama/qwen2.5:32b-instruct` |
 | `AGENT_MODEL_CHEAP`, `AGENT_MODEL_CAPABLE` | Optional cloud tiers |
 | `AGENT_PRUNE_STEP` | Set to `4` with cloud models, so the prompt prefix stays stable and provider prompt caching hits |
@@ -169,7 +172,7 @@ Details and per-lever measurements:
 ## Testing and proof
 
 ```sh
-make test       # 107 unit tests, no gateway or model needed
+make test       # 109 unit tests, no gateway or model needed
 make gate-check # the approval prompt on a real terminal, no model involved
 make bench      # token benchmark, naive vs optimized
 make proof      # every scenario into evidence/<timestamp>/ with SUMMARY.md (about an hour)

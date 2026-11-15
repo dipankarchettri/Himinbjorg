@@ -596,3 +596,17 @@ every published number used. Set `AGENT_PRUNE_STEP=4` with cloud models:
 a prompt prefix that stays byte-identical for four turns is what lets a
 provider prompt cache hit; that benefit is unmeasured here for lack of a
 cloud key.
+
+## Tavily web search, checked 2026-11-15
+
+Live against `POST https://api.tavily.com/search`. The key in the request
+body still returns 200, but the current API reference documents only
+`Authorization: Bearer <key>`, so the tool now sends the header and keeps
+the key out of the body. `chunks_per_source: 1` cuts the returned content
+from about 4,100 to 1,400 characters for 4 results at the same 1 credit
+(`include_usage` reports it); results are cut to 400 characters each
+anyway, so the extra chunks were only latency. Results are labelled as
+third-party text. The tool is registered only when `TAVILY_API_KEY` is set,
+so a keyless install no longer sends a schema the model can only get an
+error from. No trace before this date shows a `web_search` call: the
+benchmark tasks never needed it.
