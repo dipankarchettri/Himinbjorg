@@ -1,4 +1,4 @@
-# PS01 - Token-Efficient Coding Agent: Overview
+# Token-Efficient Coding Agent: Overview
 
 > This file previously contained a build plan written from assumption, before
 > the Bifrost documentation had been read. Several of those assumptions were

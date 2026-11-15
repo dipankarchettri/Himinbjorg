@@ -5,9 +5,11 @@ LLM gateway. It fixes bugs, adds features and refactors real repositories
 while spending as few tokens as it can, and it enforces failover, per-user
 budgets, code privacy and action approval in the harness, not in the prompt.
 
-Built for Problem Statement 01 of the Bifrost by Maxim AI track: *build a
-coding agent that gets the job done on the fewest tokens.* The name is
-Heimdall's hall at the end of the Bifrost bridge, where the gate is kept.
+Built for the Geek Room AI Global Hackathon, theme **Build a Coding Agent
+That Gets the Job Done on the Fewest Tokens** (Bifrost by Maxim AI), by team
+Essential Engineers: Anusha A (lead), J Bhuvanesh and Dipankar Chettri. The
+name is Heimdall's hall at the end of the Bifrost bridge, where the gate is
+kept.
 
 **Headline result:** on 7 benchmark tasks, 10 runs each at temperature 0.7,
 it passes 57/70 against 31/70 for the same agent with every lever off, using
@@ -19,6 +21,7 @@ gateway-reported; the evidence pack is committed in
 
 - [Features](#features)
 - [Results](#results)
+- [Technologies used](#technologies-used)
 - [Quick start](#quick-start)
 - [Usage](#usage)
 - [Configuration](#configuration)
@@ -31,7 +34,7 @@ gateway-reported; the evidence pack is committed in
 
 ## Features
 
-Each PS01 requirement, how it is enforced, and where it is proven:
+Each requirement of the theme, how it is enforced, and where it is proven:
 
 | Requirement | How it is enforced | Proof |
 | --- | --- | --- |
@@ -77,6 +80,19 @@ models; one task (`shop_freeship`) is solved by neither arm; and the first
 run of the 21-file tasks went the other way (optimized 1/15, naive 8/15).
 What changed after that run, and why, is in
 [`docs/VERIFIED.md`](docs/VERIFIED.md).
+
+## Technologies used
+
+| Technology | Role |
+| --- | --- |
+| [Bifrost](https://github.com/maximhq/bifrost) by Maxim AI | Gateway for every model call: provider fallback chains, semantic cache (on Redis Stack), per-user virtual keys with budgets, a local-only key for confidential repositories, per-call cost in its log API |
+| [Tavily](https://tavily.com) | The agent's `web_search` tool for library docs and error messages; results are labelled as untrusted third-party text, and the tool is never built in confidential mode |
+| Python 3.11, `openai` SDK | The agent, talking to Bifrost's OpenAI-compatible route |
+| [Ollama](https://ollama.com), Qwen 2.5 instruct | Local models for confidential mode and the offline end of the fallback chain |
+| Gemini, Groq, OpenRouter (Claude, DeepSeek, Qwen), OpenAI, Anthropic | Optional cloud tiers behind the gateway |
+| TypeScript, VS Code extension API | The VS Code front end (`extension/`) |
+| Docker Compose | Runs Bifrost and Redis Stack |
+| pytest, `@vscode/test-electron` | Unit tests and in-editor end-to-end tests |
 
 ## Quick start
 

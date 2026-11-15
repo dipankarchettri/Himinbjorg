@@ -191,7 +191,7 @@ that is the correct trade.
 ## Corrected `infra/docker-compose.yml`
 
 ```yaml
-# Infra for the token-efficient coding agent (PS01).
+# Infra for the token-efficient coding agent (Himinbjorg).
 # Usage from the repository root:
 #   docker compose --env-file .env -f infra/docker-compose.yml up -d
 services:

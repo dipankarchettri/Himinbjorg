@@ -1,4 +1,4 @@
-# Infra for the token-efficient coding agent (PS01).
+# Infra for the token-efficient coding agent (Himinbjorg).
 #
 # Host port 8099 -> container 8080, because 8080 and 8081 are already in use
 # on this machine by an unrelated service.
