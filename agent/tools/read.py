@@ -11,6 +11,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from ..security.policy import is_secret_path
+
 MAX_DEFAULT_LINES = 240
 MAX_GREP_MATCHES = 60
 
@@ -140,15 +142,27 @@ def grep(pattern: str, repo_root: Path, path: str | None = None, **_) -> str:
     cmd = ["grep", "-rnI", "--color=never"]
     for d in SKIP_DIRS:
         cmd += ["--exclude-dir", d]
-    cmd += [pattern, target]
+    # -e and -- keep a pattern or path that starts with "-" from being
+    # read as a grep option.
+    cmd += ["-e", pattern, "--", target]
     try:
         proc = subprocess.run(cmd, capture_output=True, stdin=subprocess.DEVNULL, text=True, timeout=20)
     except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
         return f"ERROR: grep failed: {exc}"
     out = proc.stdout.splitlines()
+    # The read tool refuses credentials files; grep must not show their
+    # lines either, since its output goes to the model without approval.
+    root = str(repo_root) + os.sep
+    kept = [l for l in out
+            if not is_secret_path(l.split(":", 1)[0].replace(root, "", 1))]
+    hidden = len(out) - len(kept)
+    out = kept
     if not out:
-        return f"no matches for {pattern!r}"
+        note = f" ({hidden} in credentials files withheld)" if hidden else ""
+        return f"no matches for {pattern!r}{note}"
     trimmed = [l[:300] for l in out[:MAX_GREP_MATCHES]]
     rel = [l.replace(str(repo_root) + os.sep, "") for l in trimmed]
     more = f"\n[{len(out) - len(trimmed)} more matches not shown]" if len(out) > len(trimmed) else ""
+    if hidden:
+        more += f"\n[{hidden} matches in credentials files withheld]"
     return "\n".join(rel) + more

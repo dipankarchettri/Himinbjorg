@@ -110,7 +110,7 @@ ollama pull qwen2.5:7b-instruct      # used by the failover and budget scenarios
 cp .env.example .env                 # provider keys optional
 make venv                            # .venv with the agent installed
 make up                              # Bifrost on :8099 + Redis Stack
-make test                            # 123 unit tests, no gateway needed
+make test                            # 125 unit tests, no gateway needed
 make agent TASK="what does divide() do wrong?" REPO=bench/seed
 ```
 
@@ -250,7 +250,7 @@ Details and per-lever measurements:
 ## Testing and proof
 
 ```sh
-make test       # 123 unit tests, no gateway or model needed
+make test       # 125 unit tests, no gateway or model needed
 make gate-check # the approval prompt on a real terminal, no model involved
 make bench      # token benchmark, naive vs optimized
 make proof      # every scenario into evidence/<timestamp>/ with SUMMARY.md (about an hour)

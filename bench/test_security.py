@@ -242,3 +242,23 @@ def test_project_python_prefers_the_repo_virtualenv(tmp_path):
     venv_py.parent.mkdir(parents=True)
     venv_py.write_text("")
     assert project_python(tmp_path) == str(venv_py)
+
+
+def test_grep_withholds_credentials_files(tmp_path):
+    from agent.tools import read as read_mod
+    (tmp_path / "app.py").write_text("TOKEN_NAME = 'x'\n")
+    (tmp_path / ".env").write_text("TOKEN_NAME=secret-value\n")
+    (tmp_path / ".ssh").mkdir()
+    (tmp_path / ".ssh" / "id_rsa").write_text("TOKEN_NAME private\n")
+    out = read_mod.grep("TOKEN_NAME", tmp_path)
+    assert "app.py" in out
+    assert "secret-value" not in out and "private" not in out
+    assert "2 matches in credentials files withheld" in out
+
+
+def test_grep_pattern_is_never_an_option(tmp_path):
+    from agent.tools import read as read_mod
+    (tmp_path / "a.txt").write_text("-V marks the version flag\n")
+    out = read_mod.grep("-V", tmp_path)
+    assert "GNU grep" not in out
+    assert "a.txt:1:" in out
