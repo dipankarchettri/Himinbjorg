@@ -1,0 +1,11 @@
+====================================================================
+SCENARIO 1b: identical re-run of 'add_power' under one cache scope
+====================================================================
+  first run (cold cache)           ok=True  calls=4  hits=0  processed_by_provider=4402  from_cache=0
+  re-run (same task, same repo)    ok=True  calls=4  hits=4  processed_by_provider=0  from_cache=4402
+
+  provider tokens: 4402 -> 0 (100% fewer on the re-run)
+  RESULT: PASS - re-run served from cache and still completed the task
+  evidence: ./evidence/scenario1b-cache-20261115-055600.json
+
+[stderr]

@@ -1,0 +1,360 @@
+"""Agent loop behaviour against a scripted model. No gateway, no model."""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from agent import budget as budget_mod                          # noqa: E402
+from agent import llm as llm_mod                                # noqa: E402
+from agent import telemetry                                     # noqa: E402
+from agent.config import LeverFlags, Settings                   # noqa: E402
+from agent.loop import Agent                                    # noqa: E402
+from agent.security import policy                               # noqa: E402
+from agent.security.privacy import PrivacyMode                  # noqa: E402
+from agent.tools.registry import Registry                       # noqa: E402
+from bench.tasks import TASKS_BY_ID, materialise                # noqa: E402
+
+
+def call(name, **args):
+    call.n = getattr(call, "n", 0) + 1
+    return {"id": f"c{call.n}", "type": "function",
+            "function": {"name": name, "arguments": json.dumps(args)}}
+
+
+class FakeClient:
+    """Returns scripted turns; records what the agent sent."""
+
+    def __init__(self, turns):
+        self.turns = list(turns)
+        self.specs = []
+
+    def call(self, spec):
+        self.specs.append(spec)
+        tool_calls, text = (self.turns.pop(0) if self.turns else ([], "done"))
+        return llm_mod.CallResult(
+            text=text, tool_calls=tool_calls,
+            usage=telemetry.Usage(100, 10, 110), routing=telemetry.RoutingInfo("ollama", "m"),
+            cache=telemetry.CacheInfo(), request_id="r", latency_s=0.0)
+
+
+@pytest.fixture(autouse=True)
+def no_gateway(monkeypatch):
+    monkeypatch.setattr(budget_mod, "poll", lambda *a, **k: budget_mod.Quota())
+
+
+def make_agent(repo, turns, auto_approve=True, **lever_kw):
+    settings = Settings(
+        bifrost_base_url="http://localhost:1", vk_standard="sk-bf-demo-user-key",
+        vk_confidential="sk-bf-confidential-key", tavily_api_key=None,
+        repo_root=repo, confidential=False, max_turns=10,
+        levers=LeverFlags(**lever_kw), model_local_small="ollama/a",
+        model_local_code="ollama/b", model_cheap="ollama/b", model_capable="ollama/b",
+        trace_dir=repo.parent, auto_approve=auto_approve)
+    privacy = PrivacyMode.build(False, settings.vk_standard, settings.vk_confidential)
+    client = FakeClient(turns)
+    return Agent(settings, privacy, client, Registry(privacy, settings),
+                 printer=lambda *a, **k: None), client
+
+
+@pytest.fixture
+def repo(tmp_path):
+    return materialise(TASKS_BY_ID["zero_check"], tmp_path / "repo")
+
+
+def tool_results(agent):
+    return [e.content for e in agent.ledger.entries if e.kind == "tool_result"]
+
+
+def test_failing_edit_is_not_shown_for_approval(repo, monkeypatch):
+    asked = []
+    monkeypatch.setattr(policy, "_read_tty_response", lambda p: asked.append(p) or ("y", ""))
+    agent, _ = make_agent(repo, [([call("apply_patch", path="calc.py", find="nope", replace="x")], "")],
+                          auto_approve=False)
+    agent.run("fix calc.py")
+    assert asked == []
+    assert any("not found" in c for c in tool_results(agent))
+
+
+def test_approval_prompt_shows_the_diff(repo, monkeypatch):
+    asked = []
+    monkeypatch.setattr(policy, "_read_tty_response", lambda p: asked.append(p) or ("y", ""))
+    agent, _ = make_agent(repo, [([call("apply_patch", path="calc.py", find="return a / b",
+                                        replace="return a / b if b else None")], "")],
+                          auto_approve=False)
+    agent.run("fix calc.py")
+    assert len(asked) == 1
+    assert "-    return a / b" in asked[0] and "+    return a / b if b else None" in asked[0]
+    assert "if b else None" in (repo / "calc.py").read_text()
+
+
+def test_approve_all_covers_edits_but_not_shell(repo, monkeypatch):
+    answers = iter(["a", "n"])
+    asked = []
+    monkeypatch.setattr(policy, "_read_tty_response",
+                        lambda p: asked.append(p) or (next(answers), ""))
+    agent, _ = make_agent(repo, [
+        ([call("apply_patch", path="calc.py", find="return a + b", replace="return b + a")], ""),
+        ([call("apply_patch", path="calc.py", find="return a - b", replace="return -(b - a)")], ""),
+        ([call("run_command", command="python -m pytest -q")], ""),
+    ], auto_approve=False)
+    agent.run("fix calc.py and run the tests")
+    text = (repo / "calc.py").read_text()
+    assert "return b + a" in text and "return -(b - a)" in text
+    assert len(asked) == 2                      # first edit, then the shell command
+    assert "run_command" in asked[1]
+    assert any("denied" in c for c in tool_results(agent))
+
+
+def test_duplicate_calls_in_one_turn_run_once(repo):
+    same = dict(path="calc.py", find="return a * b", replace="return b * a")
+    agent, _ = make_agent(repo, [([call("apply_patch", **same), call("apply_patch", **same)], "")])
+    agent.run("fix calc.py")
+    results = tool_results(agent)
+    assert sum("patched" in c for c in results) == 1
+    assert any("duplicate of an earlier call" in c for c in results)
+
+
+def test_git_tool_offered_only_when_task_mentions_git(repo):
+    agent, client = make_agent(repo, [])
+    agent.run("fix calc.py")
+    names = {t["function"]["name"] for t in client.specs[0].tools}
+    assert "git_op" not in names and "apply_patch" in names
+    agent, client = make_agent(repo, [])
+    agent.run("fix calc.py and commit it")
+    assert "git_op" in {t["function"]["name"] for t in client.specs[0].tools}
+
+
+def test_consecutive_failed_edits_stop_the_run(repo):
+    # The measured runaway shape: a successful read between failed edits, so
+    # the no-progress rule never fires.
+    bad = [([call("read_file", path="calc.py", start=1, end=i + 1),
+             call("apply_patch", path="calc.py", find=f"missing {i}", replace="x")], "")
+           for i in range(8)]
+    agent, _ = make_agent(repo, bad)
+    out = agent.run("fix calc.py")
+    assert out.startswith("stopped:") and "edits failed" in out
+    assert agent.stats.turns == Agent.FAILED_EDIT_LIMIT
+
+
+def test_prompt_cache_markers_do_not_touch_the_ledger():
+    msgs = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
+    marked = llm_mod.mark_prompt_cache(msgs)
+    assert marked[0]["cache_control"] == {"type": "ephemeral"}
+    assert marked[-1]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in msgs[0] and "cache_control" not in msgs[1]
+
+
+def test_file_memory_resends_after_the_copy_was_pruned():
+    from agent.memory.files import FileMemory
+    fm = FileMemory(enabled=True, visible_turns=3)
+    assert fm.render("a.py", "x = 1\n", turn=1) == "x = 1\n"
+    assert "unchanged" in fm.render("a.py", "x = 1\n", turn=2)      # still visible
+    assert fm.render("a.py", "x = 1\n", turn=6) == "x = 1\n"        # pruned by now: resend
+    assert "unchanged" in fm.render("a.py", "x = 1\n", turn=7)
+
+
+def test_follow_up_task_continues_the_session(repo):
+    agent, client = make_agent(repo, [
+        ([call("read_file", path="calc.py")], ""), ([], "first done"),
+        ([], "second done"),
+    ])
+    assert agent.run("look at calc.py") == "first done"
+    assert agent.run("now summarise it") == "second done"
+    sent = client.specs[-1].messages
+    assert sum(m["role"] == "system" for m in sent) == 1
+    assert sent[-1]["content"].startswith("Next task: now summarise it")
+    turns = [e.turn for e in agent.ledger.entries]
+    assert turns == sorted(turns)                       # numbering continues
+
+
+def test_interrupt_closes_dangling_tool_calls(repo, monkeypatch):
+    agent, _ = make_agent(repo, [([call("read_file", path="calc.py"),
+                                   call("read_file", path="test_calc.py")], "")])
+    real = agent._dispatch
+    calls = {"n": 0}
+
+    def interrupt_second(c, turn):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise KeyboardInterrupt
+        return real(c, turn)
+    monkeypatch.setattr(agent, "_dispatch", interrupt_second)
+    with pytest.raises(KeyboardInterrupt):
+        agent.run("look at calc.py")
+    ids = {tc["id"] for e in agent.ledger.entries if e.tool_calls for tc in e.tool_calls}
+    answered = {e.tool_call_id for e in agent.ledger.entries if e.role == "tool"}
+    assert ids <= answered
+
+
+class FailoverClient(FakeClient):
+    """The first call is answered by a fallback, as during an outage."""
+
+    def call(self, spec):
+        self.specs.append(spec)
+        first = len(self.specs) == 1
+        tool_calls, text = (self.turns.pop(0) if self.turns else ([], "done"))
+        routing = (telemetry.RoutingInfo("anthropic", "claude-haiku-5-5", True, "openai", "gpt-4o-mini")
+                   if first else telemetry.RoutingInfo("anthropic", "claude-haiku-5-5"))
+        return llm_mod.CallResult(text=text, tool_calls=tool_calls,
+                                  usage=telemetry.Usage(100, 10, 110), routing=routing,
+                                  cache=telemetry.CacheInfo(), request_id="r", latency_s=0.0)
+
+
+def test_failover_on_first_call_is_announced_and_sticks(repo):
+    printed = []
+    settings_agent, _ = make_agent(repo, [])
+    client = FailoverClient([([call("read_file", path="calc.py")], ""), ([], "done")])
+    agent = Agent(settings_agent.settings, settings_agent.privacy, client,
+                  settings_agent.registry, printer=lambda *a, **k: printed.append(" ".join(map(str, a))))
+    agent.run("look at calc.py")
+    assert any("now served by anthropic/claude-haiku-5-5" in p for p in printed)
+    first, second = client.specs[0], client.specs[1]
+    assert second.model == "anthropic/claude-haiku-5-5"
+    assert first.model in second.fallbacks          # original primary still in the chain
+
+
+def test_stepped_pruning_keeps_the_prefix_stable():
+    from agent.memory.ledger import Ledger, LedgerEntry
+    led = Ledger(pruning_enabled=True, keep_recent_turns=3, prune_step=4)
+    for t in range(1, 12):
+        led.append(LedgerEntry(t, "tool", f"result {t} " + "x" * 200, kind="tool_result",
+                               tool_call_id=f"c{t}", name="read_file"))
+    elided = lambda now: [m["content"].startswith("[elided") for m in led.render(now)]
+    # With a step of 4 the boundary only moves at multiples of 4, so the
+    # rendered prefix is identical across consecutive turns in between.
+    assert elided(8) == elided(9) == elided(10) != elided(11)
+    assert Ledger(keep_recent_turns=3, prune_step=1).horizon(9) == 6
+
+
+def test_repl_runs_follow_ups_and_commands(repo, monkeypatch, capsys):
+    from agent import main as main_mod
+    agent, client = make_agent(repo, [([], "first answer"), ([], "second answer")])
+    lines = iter(["look at calc.py", "/cost", "", "now explain divide", "/exit"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(lines))
+    assert main_mod.repl(agent, agent.settings) == 0
+    out = capsys.readouterr().out
+    assert "first answer" in out and "second answer" in out
+    assert len(client.specs) == 2
+    assert out.count("turns=") >= 3                 # per task twice, /cost, and session end
+
+
+def test_repl_survives_interrupt_and_eof(repo, monkeypatch, capsys):
+    from agent import main as main_mod
+    agent, _ = make_agent(repo, [])
+    seq = iter([KeyboardInterrupt, EOFError])
+
+    def fake_input(prompt=""):
+        raise next(seq)
+    monkeypatch.setattr("builtins.input", fake_input)
+    assert main_mod.repl(agent, agent.settings) == 0
+
+
+def test_stuck_run_escalates_to_a_different_model(repo):
+    from agent.router import Tier
+    bad = [([call("apply_patch", path="calc.py", find=f"missing {i}", replace="x")], "")
+           for i in range(3)]
+    agent, client = make_agent(repo, bad + [([], "done")])
+    agent.settings = Settings(**{**agent.settings.__dict__, "model_capable": "anthropic/big"})
+    agent.run("look at calc.py and fix it")     # routes to T1 (ollama/c)
+    assert agent.stats.escalations == 1
+    assert client.specs[-1].model == "anthropic/big"
+
+
+def test_no_escalation_when_every_tier_is_the_same_model(repo):
+    bad = [([call("apply_patch", path="calc.py", find=f"missing {i}", replace="x")], "")
+           for i in range(6)]
+    agent, _ = make_agent(repo, bad)
+    agent.settings = Settings(**{**agent.settings.__dict__,
+                                 "model_cheap": "ollama/b", "model_capable": "ollama/b"})
+    out = agent.run("look at calc.py and fix it")
+    assert out.startswith("stopped:") and agent.stats.escalations == 0
+
+
+def test_diff_writes_lever_off_leaves_only_whole_file_writes(repo):
+    agent, client = make_agent(repo, [([call("apply_patch", path="calc.py", find="a", replace="b")], "")],
+                               diff_writes=False)
+    agent.run("fix calc.py and rename it")
+    names = {t["function"]["name"] for t in client.specs[0].tools}
+    assert "write_file" in names and not names & {"apply_patch", "rename_symbol"}
+    assert any("not available" in c for c in tool_results(agent))
+
+
+def test_context_budget_elides_oldest_but_keeps_task_and_latest():
+    from agent.memory.ledger import Ledger, LedgerEntry
+    led = Ledger(pruning_enabled=False, context_budget=1000)
+    led.append(LedgerEntry(0, "system", "SYS", pinned=True, kind="task"))
+    led.append(LedgerEntry(0, "user", "TASK", pinned=True, kind="task"))
+    for t in range(1, 6):
+        led.append(LedgerEntry(t, "tool", f"R{t} " + "x" * 2000, kind="tool_result",
+                               tool_call_id=f"c{t}", name="read_file"))
+    out = led.render(6)
+    assert out[0]["content"] == "SYS" and out[1]["content"] == "TASK"
+    assert out[2]["content"].startswith("[elided to fit")
+    assert out[-1]["content"].startswith("R5 ")
+    assert sum(len(m["content"]) for m in out) // 4 <= 1100
+
+
+@pytest.mark.parametrize("task,expected", [
+    ("fix divide() in calc.py", True),
+    ("the checkout page throws a 500", True),
+    ("yes, do it", True),
+    ("what does divide() do wrong?", False),
+    ("explain the pricing module", False),
+    ("why does test_orders fail? fix it", True),
+])
+def test_mutating_classification(task, expected):
+    from agent.loop import is_mutating
+    assert is_mutating(task) is expected
+
+
+def test_plan_without_action_gets_one_nudge(repo):
+    agent, client = make_agent(repo, [
+        ([], "We will add the zero check. Let's make these changes."),
+        ([call("apply_patch", path="calc.py", find="return a / b",
+               replace="return a / b if b else None")], ""),
+        ([], "done"),
+    ])
+    assert agent.run("fix divide() in calc.py") == "done"
+    assert "if b else None" in (repo / "calc.py").read_text()
+    assert any("have not changed any file" in (m.get("content") or "")
+               for m in client.specs[1].messages)
+
+
+def test_nudge_only_once_then_accepts_no_change_answer(repo):
+    agent, _ = make_agent(repo, [([], "plan"), ([], "No change is needed: divide already handles it.")])
+    assert agent.run("fix divide() in calc.py").startswith("No change is needed")
+
+
+def test_prompt_names_only_offered_editing_tools():
+    from agent.loop import system_prompt
+    assert "apply_patch" in system_prompt(True)
+    assert "apply_patch" not in system_prompt(False) and "write_file" in system_prompt(False)
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("Now let's ensure the tests pass.\n\nLet's execute the tests.", True),
+    ("I will now update orders.py.", True),
+    ("Next, I'll run pytest:", True),
+    ("Added FREESHIP to COUPONS and made shipping() return 0 for it. Tests pass.", False),
+    ("Let's recap: divide() now returns None when b is 0.", False),
+])
+def test_announces_next_step(text, expected):
+    from agent.loop import announces_next_step
+    assert announces_next_step(text) is expected
+
+
+def test_announced_step_after_an_edit_is_nudged(repo):
+    agent, client = make_agent(repo, [
+        ([call("apply_patch", path="calc.py", find="return a / b",
+               replace="return a / b if b else None")], ""),
+        ([], "Patched divide. Let's run the tests."),
+        ([call("run_command", command="python -m pytest -q")], ""),
+        ([], "Done: divide returns None for b == 0 and the tests pass."),
+    ])
+    assert agent.run("fix divide() in calc.py").startswith("Done")
+    assert len(client.specs) == 4

@@ -1,0 +1,61 @@
+{
+  "generated": "20261115-050124",
+  "results": [
+    {
+      "scenario": "0-security-tests",
+      "description": "Security unit tests (no gateway needed)",
+      "verdict": "PASS",
+      "exit_code": 0,
+      "seconds": 5.7,
+      "log": "0-security-tests.log"
+    },
+    {
+      "scenario": "1-token-efficiency",
+      "description": "Naive baseline vs all levers, 5 repeats at T=0.7, median tokens per completed task",
+      "verdict": "PASS",
+      "exit_code": 0,
+      "seconds": 3270.0,
+      "log": "1-token-efficiency.log"
+    },
+    {
+      "scenario": "1b-cache-rerun",
+      "description": "Identical re-run served from the gateway cache",
+      "verdict": "PASS",
+      "exit_code": 0,
+      "seconds": 9.6,
+      "log": "1b-cache-rerun.log"
+    },
+    {
+      "scenario": "2-failover",
+      "description": "Provider outage, failover with attribution",
+      "verdict": "PASS",
+      "exit_code": 0,
+      "seconds": 10.2,
+      "log": "2-failover.log"
+    },
+    {
+      "scenario": "3-budget",
+      "description": "402 before the provider call (synthetic pricing, disclosed)",
+      "verdict": "PASS",
+      "exit_code": 0,
+      "seconds": 9.3,
+      "log": "3-budget.log"
+    },
+    {
+      "scenario": "4-privacy",
+      "description": "Confidential repo under an adversarial prompt",
+      "verdict": "PASS",
+      "exit_code": 0,
+      "seconds": 28.7,
+      "log": "4-privacy.log"
+    },
+    {
+      "scenario": "5-approval",
+      "description": "Approval gate versus prompt injection",
+      "verdict": "PASS",
+      "exit_code": 0,
+      "seconds": 13.8,
+      "log": "5-approval.log"
+    }
+  ]
+}

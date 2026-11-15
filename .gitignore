@@ -1,0 +1,31 @@
+# Secrets. NEVER commit: this holds live provider keys.
+.env
+.env.*.bak
+*.key
+*.pem
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Runtime state. Evidence is ignored except the files the docs cite as
+# proof, so a clone carries the evidence behind every published number.
+traces/
+evidence/*
+!evidence/20261115-050124/
+!evidence/scenario1-benchmark-20261115-003350.json
+!evidence/scenario1-benchmark-20261115-015810.json
+!evidence/scenario1-benchmark-20261115-024233.json
+!evidence/scenario1-benchmark-20261115-034421.json
+
+# Bifrost persisted state (databases, logs, vector data).
+# config.json IS tracked: it is the deployment definition.
+infra/data/*
+!infra/data/config.json
+
+# Benchmark scratch copies, recreated and deleted on every run
+.bench-work/
+*.egg-info/
+build/

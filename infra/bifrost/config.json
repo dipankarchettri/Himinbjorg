@@ -1,0 +1,74 @@
+{
+  "$schema": "https://www.getbifrost.ai/schema",
+  "client": {
+    "drop_excess_requests": false,
+    "enforce_auth_on_inference": true
+  },
+  "providers": {
+    "openai": {
+      "keys": [
+        { "name": "openai-primary", "value": "env.OPENAI_API_KEY", "models": ["gpt-4o-mini", "gpt-4o"], "weight": 1.0 }
+      ]
+    },
+    "anthropic": {
+      "keys": [
+        { "name": "anthropic-primary", "value": "env.ANTHROPIC_API_KEY", "models": ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"], "weight": 1.0 }
+      ]
+    },
+    "ollama": {
+      "_comment": "Local provider for confidential repos. Confirm exact key names in the Web UI (Providers > Ollama); base_url points at the ollama container.",
+      "network_config": { "base_url": "http://ollama:11434" },
+      "keys": [
+        { "name": "ollama-local", "value": "", "models": ["qwen2.5-coder:7b"], "weight": 1.0 }
+      ]
+    }
+  },
+  "vector_store": {
+    "enabled": true,
+    "type": "redis",
+    "config": { "addr": "redis:6379" }
+  },
+  "plugins": [
+    {
+      "name": "semantic_cache",
+      "enabled": true,
+      "config": {
+        "provider": "openai",
+        "embedding_model": "text-embedding-3-small",
+        "dimension": 1536,
+        "ttl": "1h",
+        "threshold": 0.85,
+        "cache_by_model": true
+      }
+    }
+  ],
+  "governance": {
+    "virtual_keys": [
+      {
+        "id": "vk-user-demo",
+        "name": "Demo User",
+        "value": "sk-bf-demo-user-key",
+        "is_active": true,
+        "provider_configs": [
+          { "provider": "openai", "weight": 0.7, "allowed_models": ["gpt-4o-mini", "gpt-4o"], "key_ids": ["*"] },
+          { "provider": "anthropic", "weight": 0.3, "allowed_models": ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"], "key_ids": ["*"] }
+        ],
+        "budgets": [{ "max_limit": 5.00, "reset_duration": "1M" }],
+        "rate_limit": {
+          "token_max_limit": 200000, "token_reset_duration": "1h",
+          "request_max_limit": 200, "request_reset_duration": "1m"
+        }
+      },
+      {
+        "id": "vk-user-confidential",
+        "name": "Confidential User (local only)",
+        "value": "sk-bf-confidential-key",
+        "is_active": true,
+        "provider_configs": [
+          { "provider": "ollama", "weight": 1.0, "allowed_models": ["qwen2.5-coder:7b"], "key_ids": ["*"] }
+        ],
+        "budgets": [{ "max_limit": 1000.00, "reset_duration": "1M" }]
+      }
+    ]
+  }
+}

@@ -1,0 +1,214 @@
+{
+  "$schema": "https://www.getbifrost.ai/schema",
+  "source_of_truth": "config.json",
+  "client": {
+    "drop_excess_requests": false,
+    "enforce_auth_on_inference": true
+  },
+  "providers": {
+    "ollama": {
+      "keys": [
+        {
+          "name": "ollama-local",
+          "value": "",
+          "models": [
+            "qwen3:1.7b",
+            "qwen2.5-coder:7b",
+            "qwen2.5:7b-instruct",
+            "qwen2.5vl:7b",
+            "qwen2.5:32b-instruct"
+          ],
+          "weight": 1.0,
+          "ollama_key_config": {
+            "url": "http://host.docker.internal:11434"
+          }
+        }
+      ],
+      "network_config": {
+        "base_url": "http://host.docker.internal:11434",
+        "allow_private_network": true
+      }
+    },
+    "openai": {
+      "keys": [
+        {
+          "name": "openai-primary",
+          "value": "env.OPENAI_API_KEY",
+          "models": [
+            "gpt-4o-mini",
+            "gpt-4o",
+            "text-embedding-3-small"
+          ],
+          "weight": 1.0
+        }
+      ]
+    },
+    "anthropic": {
+      "keys": [
+        {
+          "name": "anthropic-primary",
+          "value": "env.ANTHROPIC_API_KEY",
+          "models": [
+            "claude-sonnet-5-5",
+            "claude-haiku-5-5"
+          ],
+          "weight": 1.0
+        }
+      ]
+    }
+  },
+  "vector_store": {
+    "enabled": true,
+    "type": "redis",
+    "config": {
+      "addr": "redis:6379"
+    }
+  },
+  "plugins": [
+    {
+      "name": "semantic_cache",
+      "enabled": true,
+      "config": {
+        "dimension": 1,
+        "ttl": "24h",
+        "conversation_history_threshold": 50,
+        "cache_by_model": true,
+        "cache_by_provider": true,
+        "cache_tool_call_responses": true,
+        "default_cache_key": ""
+      }
+    }
+  ],
+  "governance": {
+    "virtual_keys": [
+      {
+        "id": "vk-user-demo",
+        "name": "Demo User",
+        "value": "sk-bf-demo-user-key",
+        "is_active": true,
+        "rate_limit_id": "rl-demo",
+        "provider_configs": [
+          {
+            "provider": "ollama",
+            "weight": 1.0,
+            "allowed_models": [
+              "qwen3:1.7b",
+              "qwen2.5-coder:7b",
+              "qwen2.5:7b-instruct",
+              "qwen2.5vl:7b",
+              "qwen2.5:32b-instruct"
+            ],
+            "key_ids": [
+              "*"
+            ]
+          },
+          {
+            "provider": "openai",
+            "weight": 1.0,
+            "allowed_models": [
+              "gpt-4o-mini",
+              "gpt-4o",
+              "text-embedding-3-small"
+            ],
+            "key_ids": [
+              "*"
+            ]
+          },
+          {
+            "provider": "anthropic",
+            "weight": 1.0,
+            "allowed_models": [
+              "claude-sonnet-5-5",
+              "claude-haiku-5-5"
+            ],
+            "key_ids": [
+              "*"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "vk-user-confidential",
+        "name": "Confidential User (local only)",
+        "value": "sk-bf-confidential-key",
+        "is_active": true,
+        "provider_configs": [
+          {
+            "provider": "ollama",
+            "weight": 1.0,
+            "allowed_models": [
+              "qwen3:1.7b",
+              "qwen2.5-coder:7b",
+              "qwen2.5:7b-instruct",
+              "qwen2.5vl:7b",
+              "qwen2.5:32b-instruct"
+            ],
+            "key_ids": [
+              "*"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "vk-user-budget-demo",
+        "name": "Budget Demo (tiny limit)",
+        "value": "sk-bf-budget-demo-key",
+        "is_active": true,
+        "provider_configs": [
+          {
+            "provider": "ollama",
+            "weight": 1.0,
+            "allowed_models": [
+              "qwen3:1.7b",
+              "qwen2.5-coder:7b",
+              "qwen2.5:7b-instruct",
+              "qwen2.5vl:7b",
+              "qwen2.5:32b-instruct"
+            ],
+            "key_ids": [
+              "*"
+            ]
+          }
+        ]
+      }
+    ],
+    "budgets": [
+      {
+        "id": "bud-demo",
+        "virtual_key_id": "vk-user-demo",
+        "max_limit": 5.0,
+        "reset_duration": "1M"
+      },
+      {
+        "id": "bud-budget-demo",
+        "virtual_key_id": "vk-user-budget-demo",
+        "max_limit": 0.05,
+        "reset_duration": "1M"
+      }
+    ],
+    "rate_limits": [
+      {
+        "id": "rl-demo",
+        "token_max_limit": 2000000,
+        "token_reset_duration": "1h",
+        "request_max_limit": 2000,
+        "request_reset_duration": "1m"
+      }
+    ],
+    "pricing_overrides": [
+      {
+        "id": "po-local-synthetic",
+        "name": "SYNTHETIC price for local models (budget demo only)",
+        "scope_kind": "virtual_key",
+        "virtual_key_id": "vk-user-budget-demo",
+        "match_type": "wildcard",
+        "pattern": "qwen*",
+        "request_types": [
+          "chat_completion"
+        ],
+        "pricing_patch": "{\"input_cost_per_token\": 0.0002, \"output_cost_per_token\": 0.001}"
+      }
+    ]
+  },
+  "setup_token": "bifrost-local-setup-token"
+}

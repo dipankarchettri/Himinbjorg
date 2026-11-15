@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "himinbjorg"
+version = "0.5.0"
+description = "Token-efficient coding agent on the Bifrost LLM gateway"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = ["openai>=3.51,<4"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+himin = "agent.main:main"
+bfa = "agent.main:main"  # short alias
+
+[tool.setuptools.packages.find]
+include = ["agent*"]
+
+[tool.pytest.ini_options]
+testpaths = ["bench/test_security.py", "bench/test_write.py", "bench/test_tasks.py", "bench/test_loop.py"]
+python_files = ["test_*.py"]

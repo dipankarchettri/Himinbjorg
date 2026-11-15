@@ -1,0 +1,50 @@
+{
+  "scenario": "budget_402_before_provider",
+  "virtual_key": "sk-bf-budget-demo-key",
+  "synthetic_pricing": true,
+  "blocked_at_call": 7,
+  "calls": [
+    {
+      "n": 1,
+      "status": 200,
+      "used": 0.0,
+      "request_id": "4c33321f-23ad-4c98-9002-e3f844a2fe53"
+    },
+    {
+      "n": 2,
+      "status": 200,
+      "used": 0.0,
+      "request_id": "13f508a3-b1af-43d6-8ec5-cb95bee8bc81"
+    },
+    {
+      "n": 3,
+      "status": 200,
+      "used": 0.0,
+      "request_id": "1e17a7e9-84b4-4136-960e-7460f8643417"
+    },
+    {
+      "n": 4,
+      "status": 200,
+      "used": 0.0,
+      "request_id": "94bf0d27-f839-4c77-90d1-1e519285667e"
+    },
+    {
+      "n": 5,
+      "status": 200,
+      "used": 0.0,
+      "request_id": "5126da50-077b-477a-9f29-c16f3be761ef"
+    },
+    {
+      "n": 6,
+      "status": 200,
+      "used": 0.0,
+      "request_id": "9d180d76-d2a2-4c21-beff-c8ecbc5b1dd0"
+    },
+    {
+      "n": 7,
+      "status": 402,
+      "used": 0.0,
+      "request_id": "ea896568-68dd-43d0-b6cc-261500abe805"
+    }
+  ]
+}

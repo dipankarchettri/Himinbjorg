@@ -1,0 +1,42 @@
+# Infra for the token-efficient coding agent (PS01).
+#
+# Host port 8099 -> container 8080, because 8080 and 8081 are already in use
+# on this machine by an unrelated service.
+#
+# Ollama is NOT containerised here: a native Ollama is already running on the
+# host and reachable from containers via host.docker.internal (mapped to the
+# host gateway below). Redis is not published to the host, because 6379 is
+# already taken; Bifrost reaches it over the compose network.
+#
+# Usage from the repository root:
+#   docker compose --env-file .env -f infra/docker-compose.yml up -d
+services:
+  bifrost:
+    image: maximhq/bifrost
+    ports:
+      - "8099:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - LOG_LEVEL=info
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - BIFROST_SETUP_TOKEN=bifrost-local-setup-token
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis/redis-stack-server:latest
+    # Redis Stack, NOT plain redis: the semantic cache needs the FT.* search
+    # commands, which redis:7-alpine does not provide.
+    # No host port mapping: 6379 is occupied on this host.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped

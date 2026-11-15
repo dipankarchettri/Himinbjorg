@@ -1,0 +1,35 @@
+{
+  "scenario": "provider_failover",
+  "passed": true,
+  "http_status": 200,
+  "routing_info": {
+    "provider": "ollama",
+    "model": "qwen2.5:7b-instruct",
+    "key": "ollama-local",
+    "is_fallback": true,
+    "primary_provider": "openai",
+    "primary_model": "gpt-4o-mini",
+    "requested_provider": "openai",
+    "requested_model": "gpt-4o-mini"
+  },
+  "request_id": "571fd078-f6be-44c8-9b0e-9e966d2f4448",
+  "headers": {
+    "x-bifrost-request-id": "571fd078-f6be-44c8-9b0e-9e966d2f4448",
+    "x-bifrost-trace-id": "3585793ca820476998cdca75a8542717",
+    "x-bifrost-provider": "ollama",
+    "x-bifrost-original-model": "gpt-4o-mini",
+    "x-bifrost-resolved-model": "qwen2.5:7b-instruct",
+    "x-bifrost-request-type": "chat_completion",
+    "x-bifrost-routing-info-provider": "ollama",
+    "x-bifrost-routing-info-model": "qwen2.5:7b-instruct",
+    "x-bifrost-routing-info-key": "ollama-local",
+    "x-bifrost-routing-info-is-fallback": "true",
+    "x-bifrost-routing-info-primary-provider": "openai",
+    "x-bifrost-routing-info-primary-model": "gpt-4o-mini",
+    "x-bifrost-routing-info-requested-provider": "openai",
+    "x-bifrost-routing-info-requested-model": "gpt-4o-mini",
+    "x-bifrost-fallback-index": "2",
+    "x-bifrost-upstream-latency-ms": "6014.622"
+  },
+  "gateway_log": {}
+}

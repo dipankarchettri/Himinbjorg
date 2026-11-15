@@ -1,0 +1,35 @@
+====================================================================
+SCENARIO 3: budget enforced BEFORE the provider call
+====================================================================
+  key    : sk-bf-budget-demo-key
+  limit  : $0.0500
+  used   : $0.000000
+  NOTE   : local inference is free; a SYNTHETIC pricing override
+           makes the limit reachable. The 402 path is real.
+
+  call  1: HTTP 200  used=$0.000000  tokens=40  rid=4c33321f
+  call  2: HTTP 200  used=$0.000000  tokens=40  rid=13f508a3
+  call  3: HTTP 200  used=$0.000000  tokens=40  rid=1e17a7e9
+  call  4: HTTP 200  used=$0.000000  tokens=40  rid=94bf0d27
+  call  5: HTTP 200  used=$0.000000  tokens=40  rid=5126da50
+  call  6: HTTP 200  used=$0.000000  tokens=40  rid=9d180d76
+  call  7: HTTP 402  used=$0.000000  tokens=-  rid=ea896568
+
+  BLOCKED. Gateway response:
+    type    : budget_exceeded
+    message : Budget exceeded: vk_model_config * budget exceeded: 0.0576 >= 0.0500 dollars
+
+  Independent gateway log record for the blocked request:
+    provider          : ollama
+    model             : qwen2.5:7b-instruct
+    status            : error
+    object            : chat_completion
+    virtual_key_name  : Budget Demo (tiny limit)
+
+    provider actually invoked: NO
+    (NO is the requirement: blocked before reaching a provider)
+
+  RESULT: PASS - 6 calls served, then 402 at call 7
+  evidence: ./evidence/scenario3-budget-20261115-055629.json
+
+[stderr]

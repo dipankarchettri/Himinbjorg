@@ -1,0 +1,24 @@
+====================================================================
+SCENARIO 2: failover from a broken primary, with attribution
+====================================================================
+  primary  : openai/gpt-4o-mini  (deliberately non-functional)
+  fallbacks: anthropic/claude-haiku-5-5 -> ollama/qwen2.5:7b-instruct
+
+  HTTP            : 200
+  served by       : ollama/qwen2.5:7b-instruct
+  is_fallback     : True
+  primary tried   : openai/gpt-4o-mini
+  fallback index  : 2
+  content         : 'OK'
+
+  header attribution (independent of the body):
+    x-bifrost-provider                         = ollama
+    x-bifrost-resolved-model                   = qwen2.5:7b-instruct
+    x-bifrost-routing-info-is-fallback         = true
+    x-bifrost-routing-info-primary-provider    = openai
+
+  failover kind   : cloud-to-local
+  RESULT: PASS - session continued across a provider outage, user can be told who took over
+  evidence: ./evidence/scenario2-failover-20261115-055619.json
+
+[stderr]
