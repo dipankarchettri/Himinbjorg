@@ -268,12 +268,14 @@ Individual scenarios: `make scenario-failover`, `scenario-budget`,
 repositories are created in the system temp directory, each as its own git
 repository, so runs never touch this checkout.
 
-GitHub Actions runs the Python suite on 3.11-3.13, re-summarises the committed
-evidence, compiles and packages the extension, and validates the Compose file
-on every push and pull request. Checks that need a live gateway and Ollama
+GitHub Actions runs the Python suite on 3.11-3.14 on Linux, plus 3.14 on
+macOS, re-summarises the committed evidence, builds and smoke-installs the
+wheel, compiles and packages the extension, and validates the Compose file on
+every push and pull request. Checks that need a live gateway and Ollama
 (`make extension-test`, `make bench`, `make proof`) stay local. Pushing a
-`v*` tag builds the wheel, sdist and VSIX and attaches them to a GitHub
-Release.
+`v*` tag tests, builds the wheel, sdist and VSIX, and attaches them to a
+GitHub Release. Dependabot keeps Python, npm, Actions and Compose dependencies
+current.
 
 ## Project layout
 

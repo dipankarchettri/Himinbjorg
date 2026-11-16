@@ -15,9 +15,12 @@ jobs:
   release:
     name: Build and attach artifacts
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -47,6 +50,12 @@ jobs:
           python -m pip install build
           python -m build
 
+      - name: Install the wheel and smoke-test the CLI
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install --quiet dist/*.whl
+          /tmp/smoke/bin/himin --help > /dev/null
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -60,6 +69,11 @@ jobs:
           npm ci --no-audit --no-fund
           npm run compile
           npm run package
+
+      - name: Check the release artifacts
+        run: |
+          test -s extension/himinbjorg.vsix
+          ls -lh dist extension/himinbjorg.vsix
 
       - name: Publish the GitHub Release
         uses: softprops/action-gh-release@v2

@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  merge_group:
+  # Weekly run: catches breakage from dependency or toolchain drift even
+  # when the repository has not changed.
+  schedule:
+    - cron: "17 4 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -15,15 +20,24 @@ concurrency:
 
 jobs:
   python:
-    name: Python ${{ matrix.python-version }}
-    runs-on: ubuntu-latest
+    name: Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        os: [ubuntu-latest]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        include:
+          # The suite passed on Linux while a path bug only appeared on
+          # macOS, so one macOS job is worth the extra runner.
+          - os: macos-latest
+            python-version: "3.14"
     steps:
       - name: Check out
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -37,6 +51,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
 
+      - name: Check dependency consistency
+        run: python -m pip check
+
       # testpaths in pyproject.toml covers security, edit tools, task
       # checkers, the agent loop, the editor server and config parsing.
       # No gateway, model, key or Docker daemon is needed.
@@ -47,18 +64,61 @@ jobs:
       # malformed pack. The printed totals are the published headline
       # (88,196 vs 13,913 tokens per completed task).
       - name: Re-summarise the committed evidence
-        if: matrix.python-version == '3.11'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
         run: python bench/pool.py
+
+  package:
+    name: Python package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Build the wheel and sdist
+        run: |
+          python -m pip install build
+          python -m build
+
+      # A wheel that builds is not necessarily a wheel that runs: install
+      # it into a fresh environment and exercise both entry points.
+      - name: Install the wheel and smoke-test the CLI
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install --quiet dist/*.whl
+          /tmp/smoke/bin/himin --help > /dev/null
+          /tmp/smoke/bin/bfa --help > /dev/null
+          /tmp/smoke/bin/python -c "import agent, agent.server, agent.tools.registry"
+
+      - name: Upload the Python package
+        uses: actions/upload-artifact@v4
+        with:
+          name: himinbjorg-python
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
 
   extension:
     name: VS Code extension
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: extension
     steps:
       - name: Check out
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -89,9 +149,12 @@ jobs:
   compose:
     name: Compose config
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Check out
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Validate docker-compose.yml
         run: docker compose --env-file .env.example -f infra/docker-compose.yml config -q
