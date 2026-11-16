@@ -109,7 +109,12 @@ def resolve_in_repo(raw_path: str, repo_root: Path) -> Path:
     resolved = candidate.resolve()
     root = repo_root.resolve()
     if resolved != root and root not in resolved.parents:
-        raise InvalidArgs(f"path escapes the repository root: {raw_path!r} -> {resolved}")
+        # The hint matters with small local models: they sometimes copy the
+        # absolute repository path from the prompt and mangle a character.
+        # Telling them the relative form lets the next turn recover.
+        raise InvalidArgs(
+            f"path escapes the repository root: {raw_path!r} -> {resolved}; "
+            f"use a path relative to the repository root, e.g. 'calc.py'")
     return resolved
 
 

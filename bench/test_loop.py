@@ -323,6 +323,29 @@ class PaymentClient(FakeClient):
         return super().call(spec)
 
 
+class GatewayErrorClient(FakeClient):
+    """The gateway fails before a provider answers (an unmapped 5xx)."""
+
+    def call(self, spec):
+        self.specs.append(spec)
+        raise llm_mod.GatewayError("502 provider connection failed")
+
+
+def test_a_gateway_error_stops_the_task_without_crashing(repo):
+    printed = []
+    base, _ = make_agent(repo, [])
+    client = GatewayErrorClient([])
+    agent = Agent(base.settings, base.privacy, client, base.registry,
+                  printer=lambda *a, **k: printed.append(" ".join(map(str, a))))
+    answer = agent.run("fix calc.py")
+    assert answer.startswith("stopped: gateway error:")
+    assert "502 provider connection failed" in answer
+    assert any("Gateway error" in p for p in printed)
+    # The session survives: a later task still runs.
+    agent.client = FakeClient([([], "done")])
+    assert agent.run("now explain it") == "done"
+
+
 def test_provider_out_of_credit_downgrades_with_an_honest_message(repo):
     printed = []
     base, _ = make_agent(repo, [])

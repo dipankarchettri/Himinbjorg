@@ -36,7 +36,9 @@ async function main(): Promise<void> {
   const ready = next(c, "ready", 60_000);
   c.start();
   const r = await ready;
-  assert.strictEqual(r.repo, repo);
+  // The agent resolves --repo to a real path; on macOS /var is a symlink
+  // to /private/var, so compare both sides after realpath.
+  assert.strictEqual(fs.realpathSync(String(r.repo)), fs.realpathSync(repo));
   console.log("ready:", r.mode);
 
   // 1. A read-only question completes with a result and stats.

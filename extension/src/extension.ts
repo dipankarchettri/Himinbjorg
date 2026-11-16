@@ -216,9 +216,9 @@ function onEvent(ev: AgentEvent): void {
       view.post({ kind: "info", text: String(ev.text ?? "") });
       break;
     case "error":
+      setBusy(false);
       view.post({ kind: "error", text: String(ev.text ?? "") });
       if (ev.fatal) {
-        setBusy(false);
         vscode.window.showErrorMessage(`Himinbjorg: ${ev.text}`);
       }
       break;

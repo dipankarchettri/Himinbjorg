@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 PY = str(ROOT / ".venv" / "bin" / "python")
 
 SCENARIOS = [
-    ("0-security-tests", [PY, "-m", "pytest", "bench/test_security.py", "bench/test_write.py", "bench/test_tasks.py", "bench/test_loop.py", "bench/test_server.py", "-q"],
+    ("0-security-tests", [PY, "-m", "pytest", "bench/test_security.py", "bench/test_write.py", "bench/test_tasks.py", "bench/test_loop.py", "bench/test_server.py", "bench/test_config.py", "-q"],
      "Unit tests: security, edit tools, agent loop, task checkers (no gateway needed)"),
     ("1-token-efficiency", [PY, "bench/benchmark.py", "--tasks", "all", "--repeats", "5"],
      "Naive baseline vs all levers, 7 tasks x 5 repeats at T=0.7: pass rate and tokens per completed task"),
@@ -103,6 +103,9 @@ def main() -> int:
                 "  same binary; only the lever flags differ. The naive arm has every",
                 "  lever off, which includes diff writes: it edits by rewriting whole",
                 "  files, as a simple agent does.",
+                "- Scenario 1 runs 5 repeats per cell here. The README headline pools",
+                "  two such packs (10 per cell, 70 runs per arm); `make pool` reproduces",
+                "  that table from the committed evidence without re-running anything.",
                 "- Three of the seven tasks run on a 21-file repository. They were",
                 "  written before any results, but the agent was improved after their",
                 "  first run, so they are no longer held out. See docs/VERIFIED.md.",

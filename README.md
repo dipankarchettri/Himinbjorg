@@ -15,7 +15,9 @@ kept.
 it passes 57/70 against 31/70 for the same agent with every lever off, using
 **84% fewer tokens per completed task** (13,913 vs 88,196). All numbers are
 gateway-reported; the evidence pack is committed in
-[`evidence/20261115-050124/`](evidence/20261115-050124/).
+[`evidence/20261115-050124/`](evidence/20261115-050124/). The headline pools
+two 5-repeat packs; `make pool` reproduces the table below from them, while a
+single `make proof` run produces a fresh 5-repeat pack.
 
 ## Contents
 
@@ -59,7 +61,7 @@ From the committed evidence pack, all 7 stages PASS:
 
 | Scenario | Result |
 | --- | --- |
-| 0 unit tests | 107 passing: security, edit tools, agent loop, task checkers |
+| 0 unit tests | 135 passing: security, edit tools, agent loop, task checkers |
 | 1 token efficiency (7 tasks x 10 runs, T=0.7) | 57/70 passed vs 31/70 naive; 13,913 vs 88,196 tokens per completed task (84% fewer). On the 21-file repository: 20/30 vs 3/30 |
 | 1b identical re-run | 4,402 -> 0 provider tokens, every call served from the semantic cache |
 | 2 failover | PASS: broken OpenAI -> Anthropic -> local, with attribution |
@@ -107,10 +109,11 @@ Node.js 22+ and the `code` command on your `PATH`.
 git clone https://github.com/dipankarchettri/Himinbjorg.git himinbjorg && cd himinbjorg
 ollama pull qwen2.5:32b-instruct     # local coding model, about 20 GB
 ollama pull qwen2.5:7b-instruct      # used by the failover and budget scenarios
+ollama pull qwen2.5:3b               # optional: small model for smoke tests
 cp .env.example .env                 # provider keys optional
 make venv                            # .venv with the agent installed
 make up                              # Bifrost on :8099 + Redis Stack
-make test                            # 125 unit tests, no gateway needed
+make test                            # 135 unit tests, no gateway needed
 make agent TASK="what does divide() do wrong?" REPO=bench/seed
 ```
 
@@ -250,9 +253,10 @@ Details and per-lever measurements:
 ## Testing and proof
 
 ```sh
-make test       # 125 unit tests, no gateway or model needed
+make test       # 135 unit tests, no gateway or model needed
 make gate-check # the approval prompt on a real terminal, no model involved
 make bench      # token benchmark, naive vs optimized
+make pool       # reproduce the README headline from the committed packs, no gateway
 make proof      # every scenario into evidence/<timestamp>/ with SUMMARY.md (about an hour)
 make extension-test  # extension: end to end against the agent, then inside VS Code
 ```

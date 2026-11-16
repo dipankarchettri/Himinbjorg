@@ -16,7 +16,8 @@
             "qwen2.5-coder:7b",
             "qwen2.5:7b-instruct",
             "qwen2.5vl:7b",
-            "qwen2.5:32b-instruct"
+            "qwen2.5:32b-instruct",
+            "qwen2.5:3b"
           ],
           "weight": 1.0,
           "ollama_key_config": {
@@ -139,7 +140,8 @@
               "qwen2.5-coder:7b",
               "qwen2.5:7b-instruct",
               "qwen2.5vl:7b",
-              "qwen2.5:32b-instruct"
+              "qwen2.5:32b-instruct",
+              "qwen2.5:3b"
             ],
             "key_ids": [
               "*"
@@ -221,7 +223,8 @@
               "qwen2.5-coder:7b",
               "qwen2.5:7b-instruct",
               "qwen2.5vl:7b",
-              "qwen2.5:32b-instruct"
+              "qwen2.5:32b-instruct",
+              "qwen2.5:3b"
             ],
             "key_ids": [
               "*"
@@ -243,7 +246,8 @@
               "qwen2.5-coder:7b",
               "qwen2.5:7b-instruct",
               "qwen2.5vl:7b",
-              "qwen2.5:32b-instruct"
+              "qwen2.5:32b-instruct",
+              "qwen2.5:3b"
             ],
             "key_ids": [
               "*"

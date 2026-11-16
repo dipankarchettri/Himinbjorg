@@ -16,7 +16,9 @@ sys.path.insert(0, str(ROOT))
 from agent import server as server_mod                          # noqa: E402
 from agent.loop import Agent                                    # noqa: E402
 from agent.security import policy                               # noqa: E402
-from bench.test_loop import FakeClient, call, make_agent, no_gateway, repo  # noqa: E402,F401
+from agent.security.privacy import PrivacyViolation             # noqa: E402
+from bench.test_loop import (FakeClient, GatewayErrorClient, call, make_agent,  # noqa: E402,F401
+                             no_gateway, repo)
 
 
 class FakeChannel:
@@ -52,14 +54,14 @@ def served(repo, monkeypatch):
     """A running server whose agent talks to a scripted client."""
     started = []
 
-    def start(turns):
+    def start(turns, client=None):
         base, _ = make_agent(repo, [], auto_approve=False)
         settings = base.settings
         monkeypatch.setattr(server_mod.Server, "__init__", lambda self, *a, **k: None)
         srv = server_mod.Server()
         srv.settings, srv.ch, srv.stdin = settings, FakeChannel(), Feed()
         srv.privacy, srv.registry = base.privacy, base.registry
-        srv.client = FakeClient(turns)
+        srv.client = client or FakeClient(turns)
         srv.agent = Agent(settings, srv.privacy, srv.client, srv.registry, printer=srv._print)
         srv.tasks, srv._pending = queue.Queue(), {}
         srv._pending_lock, srv._busy, srv._closed = threading.Lock(), False, threading.Event()
@@ -135,6 +137,47 @@ def test_commands_answer_on_the_channel(served):
     assert "total_tokens" in srv.ch.wait("cost")["stats"]
     srv.stdin.push({"type": "nonsense"})
     assert "unknown request" in srv.ch.wait("error")["text"]
+
+
+def test_a_gateway_error_ends_the_task_but_not_the_server(served):
+    srv = served([], client=GatewayErrorClient([]))
+    srv.stdin.push({"type": "task", "text": "fix divide in calc.py"})
+    res = srv.ch.wait("result")
+    assert res["text"].startswith("stopped: gateway error:")
+    assert "502" in res["text"]
+    # The session is still alive: another task runs and answers.
+    srv.agent.client = FakeClient([([], "still here")])
+    srv.stdin.push({"type": "task", "text": "now explain divide"})
+    assert srv.ch.wait("result")["text"] == "still here"
+
+
+def test_an_unexpected_error_is_reported_and_the_server_keeps_serving(served):
+    class CrashClient(FakeClient):
+        def call(self, spec):
+            raise RuntimeError("boom")
+
+    srv = served([], client=CrashClient([]))
+    srv.stdin.push({"type": "task", "text": "fix divide in calc.py"})
+    err = srv.ch.wait("error")
+    assert "RuntimeError: boom" in err["text"]
+    assert not err.get("fatal")
+    srv.agent.client = FakeClient([([], "still here")])
+    srv.stdin.push({"type": "task", "text": "now explain divide"})
+    assert srv.ch.wait("result")["text"] == "still here"
+
+
+def test_a_privacy_violation_is_still_fatal(served):
+    """The generic guard must not swallow the fail-closed path."""
+    class LeakClient(FakeClient):
+        def call(self, spec):
+            raise PrivacyViolation("cloud model blocked in confidential mode")
+
+    srv = served([], client=LeakClient([]))
+    srv.stdin.push({"type": "task", "text": "fix divide in calc.py"})
+    err = srv.ch.wait("error")
+    assert err.get("fatal") is True
+    assert "ABORT" in err["text"]
+    assert "blocked" in err["text"]
 
 
 def test_stdout_carries_only_protocol():

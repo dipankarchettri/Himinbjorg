@@ -13,6 +13,7 @@ degradation ladder are the real mechanism.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -24,7 +25,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 BASE = "http://localhost:8099"
 VK = "sk-bf-budget-demo-key"
 VK_ID = "vk-user-budget-demo"
-MODEL = "ollama/qwen2.5:7b-instruct"
+MODEL = os.environ.get("BUDGET_MODEL", "ollama/qwen2.5:7b-instruct")
+# BUDGET_MODEL must be allowlisted for the budget virtual key in
+# infra/data/config.json (e.g. BUDGET_MODEL=ollama/qwen2.5:3b for a smoke test).
 SETUP_TOKEN = "bifrost-local-setup-token"
 MAX_CALLS = 40
 SETTLE_SECONDS = 45   # usage is flushed asynchronously; see note in main()

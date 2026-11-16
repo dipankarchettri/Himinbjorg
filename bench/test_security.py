@@ -55,6 +55,14 @@ def test_path_jail_rejects_escapes(bad):
         policy.validate_args(spec, {"path": bad}, REPO)
 
 
+def test_absolute_path_inside_the_repo_is_allowed():
+    """Models often pass absolute paths; one inside the root is legitimate."""
+    spec = policy.ToolSpec("write_file", Permission.GATED, "", {}, lambda **k: "", mutating=True)
+    out = policy.validate_args(spec, {"path": str(REPO / "calc.py")}, REPO)
+    assert out["_rel"] == "calc.py"
+    assert Path(out["path"]) == (REPO / "calc.py").resolve()
+
+
 @pytest.mark.parametrize("secret", [
     ".env", ".env.local", "id_rsa", "deploy.pem", "server.key",
     ".git/config", ".npmrc", "credentials.json",

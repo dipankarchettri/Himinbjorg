@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT))
 BASE = "http://localhost:8099"
 VK = "sk-bf-demo-user-key"
 SETUP_TOKEN = "bifrost-local-setup-token"
-LOCAL = "ollama/qwen2.5:7b-instruct"
+LOCAL = os.environ.get("FAILOVER_LOCAL", "ollama/qwen2.5:7b-instruct")
 # Default chain: broken OpenAI -> Anthropic -> local. With a working
 # Anthropic key the outage is absorbed cloud-to-cloud at fallback index 1;
 # without one, Anthropic fails too and local takes over at index 2. Both
@@ -30,6 +30,7 @@ LOCAL = "ollama/qwen2.5:7b-instruct"
 # Override both to test another chain, e.g. a real Gemini rate limit:
 #   FAILOVER_PRIMARY=gemini/gemini-pro-latest \
 #   FAILOVER_CLOUD=gemini/gemini-3.1-flash-lite python bench/failover_scenario.py
+# FAILOVER_LOCAL overrides the local fallback (e.g. ollama/qwen2.5:3b).
 BROKEN_PRIMARY = os.environ.get("FAILOVER_PRIMARY", "openai/gpt-4o-mini")
 # FAILOVER_CLOUD takes a comma-separated list for a longer chain.
 CLOUD_FALLBACKS = [m.strip() for m in

@@ -316,6 +316,17 @@ class Agent:
             except llm_mod.AllProvidersFailed as exc:
                 self.print(f"\n  All providers failed. {exc}")
                 return "stopped: all providers failed"
+            except llm_mod.GatewayError as exc:
+                # Base GatewayError is what an unmapped status (a 5xx, a
+                # connection failure) becomes when there is no fallback
+                # chain: T0 and confidential mode have none. Without this
+                # it escaped Agent.run() and killed the CLI or the editor
+                # server. Report it as a stopped task instead.
+                trace.emit("error", {"kind": type(exc).__name__,
+                                     "detail": str(exc)[:400]})
+                self.ledger.close_dangling_tool_calls(self._last_turn)
+                self.print(f"\n  Gateway error: {exc}")
+                return f"stopped: gateway error: {exc}"
 
             self._announce_provider(result)
 

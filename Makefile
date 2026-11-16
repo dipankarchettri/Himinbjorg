@@ -2,7 +2,7 @@ VENV    := .venv
 PY      := $(VENV)/bin/python
 COMPOSE := docker compose --env-file .env -f infra/docker-compose.yml
 
-.PHONY: venv up down logs status agent test proof bench gate-check extension extension-test \
+.PHONY: venv up down logs status agent test proof bench pool gate-check extension extension-test \
         scenario-failover scenario-budget scenario-privacy scenario-approval clean
 
 venv:
@@ -29,7 +29,7 @@ agent:
 	$(PY) -m agent.main "$(TASK)" --repo $(or $(REPO),.)
 
 test:
-	$(PY) -m pytest bench/test_security.py bench/test_write.py bench/test_tasks.py bench/test_loop.py bench/test_server.py -q
+	$(PY) -m pytest bench/test_security.py bench/test_write.py bench/test_tasks.py bench/test_loop.py bench/test_server.py bench/test_config.py -q
 
 # Check the approval prompt itself, with no model involved.
 gate-check:
@@ -40,6 +40,11 @@ bench:
 
 bench-attribution:
 	$(PY) bench/benchmark.py --tasks all --attribution
+
+# Pool the archived scenario-1 packs behind the README headline. No gateway
+# needed; this only re-summarises committed evidence.
+pool:
+	$(PY) bench/pool.py
 
 scenario-failover:
 	$(PY) bench/failover_scenario.py

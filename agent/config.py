@@ -21,6 +21,43 @@ def user_config_path() -> Path:
     return legacy if legacy.exists() and not path.exists() else path
 
 
+def _strip_inline_comment(value: str) -> str:
+    """Cut an unquoted `#` comment from a .env value.
+
+    A `#` starts a comment when it is unquoted and either begins the value
+    or is preceded by whitespace, so `pa#ss` and `"a # b"` survive. Quotes
+    are only special at the START of a value, as in dotenv: an apostrophe
+    inside a word (`don't`) is data, not an opening delimiter. This matters
+    because `.env.example` documented optional keys as
+    `GEMINI_API_KEY=   # Google AI Studio key`; read literally, the value
+    was the comment text, and a non-empty key overrode the default.
+    """
+    value = value.lstrip()
+    if not value:
+        return ""
+    if value[0] == "#":
+        return ""
+    if value[0] in ("'", '"'):
+        quote = value[0]
+        i = 1
+        while i < len(value):
+            ch = value[i]
+            if quote == '"' and ch == "\\" and i + 1 < len(value):
+                i += 2
+                continue
+            if ch == quote:
+                # A comment may follow the closing quote, with or without
+                # intervening whitespace.
+                rest = value[i + 1:].strip()
+                return value[:i + 1] if rest.startswith("#") else value
+            i += 1
+        return value          # unterminated quote: keep the value literally
+    for i, ch in enumerate(value):
+        if ch == "#" and value[i - 1].isspace():
+            return value[:i]
+    return value
+
+
 def load_dotenv(path: Path) -> dict[str, str]:
     """Minimal .env parser. Avoids a dependency for ten lines of work."""
     out: dict[str, str] = {}
@@ -31,7 +68,7 @@ def load_dotenv(path: Path) -> dict[str, str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        value = value.strip().strip('"').strip("'")
+        value = _strip_inline_comment(value).strip().strip('"').strip("'")
         out[key.strip()] = value
     return out
 

@@ -189,6 +189,15 @@ class Server:
             self.ch.send("result", text="Interrupted. The conversation so far is kept.",
                          interrupted=True, stats=self._stats(before))
             return
+        except Exception as exc:                    # noqa: BLE001
+            # A bug or an unmapped failure must end this task, not the
+            # server: the editor keeps its session and can ask again.
+            # Agent._run_task handles gateway errors; this is the last
+            # resort for anything else.
+            trace.emit("error", {"kind": type(exc).__name__, "detail": str(exc)[:400]})
+            self.agent.ledger.close_dangling_tool_calls(self.agent._last_turn)
+            self.ch.send("error", text=f"{type(exc).__name__}: {exc}")
+            return
         finally:
             self._busy = False
         self.ch.send("result", text=answer, stats=self._stats(before))

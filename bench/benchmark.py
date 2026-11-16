@@ -153,21 +153,26 @@ def run_one(task, arm: str, levers: LeverFlags, env: dict, stamp: str,
     return res
 
 
-def summarise(results: list[RunResult]) -> str:
+def summarise(results: list[RunResult], detail: bool = True) -> str:
     """Per-task success rate and median tokens over passing runs.
 
     No cross-task total is reported. An earlier version summed the first
     passing run of each task, which averaged opposite effects and used an
     arbitrary sample rather than a median; it produced a headline number
     that meant nothing.
+
+    detail=False omits the per-run table, for pooled output where 140
+    rows bury the two tables that matter.
     """
     import statistics
 
-    rows = ["", f"{'task':16} {'arm':10} {'ok':>3} {'tokens':>8} {'turns':>6} {'secs':>7}",
-            "-" * 60]
-    for r in results:
-        rows.append(f"{r.task:16} {r.arm:10} {'Y' if r.success else 'N':>3} "
-                    f"{r.total_tokens:>8} {r.turns:>6} {r.wall_seconds:>7.1f}")
+    rows = [""]
+    if detail:
+        rows += [f"{'task':16} {'arm':10} {'ok':>3} {'tokens':>8} {'turns':>6} {'secs':>7}",
+                 "-" * 60]
+        for r in results:
+            rows.append(f"{r.task:16} {r.arm:10} {'Y' if r.success else 'N':>3} "
+                        f"{r.total_tokens:>8} {r.turns:>6} {r.wall_seconds:>7.1f}")
 
     by: dict[tuple[str, str], list[RunResult]] = {}
     for r in results:

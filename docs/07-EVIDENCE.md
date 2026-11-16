@@ -195,7 +195,7 @@ directory with a per-scenario log, the JSON artifacts, and `SUMMARY.md`.
 
 | Scenario | Script | Make target | Status |
 | --- | --- | --- | --- |
-| 0 unit tests | `bench/test_*.py` | `make test` | 107 passing |
+| 0 unit tests | `bench/test_*.py` | `make test` | 135 passing |
 | 1 token efficiency | `bench/benchmark.py` | `make bench` | 57/70 vs 31/70 passed, 84% fewer tokens per completed task (pooled, table below) |
 | 2 failover | `bench/failover_scenario.py` | `make scenario-failover` | PASS |
 | 3 budget | `bench/budget_scenario.py` | `make scenario-budget` | PASS (synthetic pricing, disclosed) |
@@ -251,11 +251,15 @@ baseline to manufacture a ratio is not an option.
 
 ## Scenario 1, pooled results
 
-Two full runs on the final code, pooled to 10 runs per cell,
-`qwen2.5:32b-instruct`, sampling temperature 0.7 so runs are independent.
-Evidence: `evidence/scenario1-benchmark-20261115-034421.json` and
+Two full runs on the final code, each 5 repeats per cell, pooled to 10 runs
+per cell, `qwen2.5:32b-instruct`, sampling temperature 0.7 so runs are
+independent. Evidence: `evidence/scenario1-benchmark-20261115-034421.json` and
 `evidence/20261115-050124/`. Seven tasks: four small ones on a 3-file
 repository, three on a 21-file shop library with a 13-test suite.
+
+Reproduce this table with `make pool`, which re-summarises those two packs
+and needs no gateway. `make proof` runs scenario 1 at 5 repeats per cell, so a
+fresh pack shows the same effect at smaller n rather than the pooled number.
 
 ```
                          passed              tokens per completed task
