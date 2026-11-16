@@ -1,5 +1,7 @@
 # Himinbjorg
 
+[![CI](https://github.com/dipankarchettri/Himinbjorg/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/dipankarchettri/Himinbjorg/actions/workflows/ci.yml)
+
 A token-efficient coding agent, as a CLI and a VS Code extension, on the [Bifrost](https://github.com/maximhq/bifrost)
 LLM gateway. It fixes bugs, adds features and refactors real repositories
 while spending as few tokens as it can, and it enforces failover, per-user
@@ -265,6 +267,13 @@ Individual scenarios: `make scenario-failover`, `scenario-budget`,
 `scenario-privacy`, `scenario-approval`, `scenario-cache`. Benchmark task
 repositories are created in the system temp directory, each as its own git
 repository, so runs never touch this checkout.
+
+GitHub Actions runs the Python suite on 3.11-3.13, re-summarises the committed
+evidence, compiles and packages the extension, and validates the Compose file
+on every push and pull request. Checks that need a live gateway and Ollama
+(`make extension-test`, `make bench`, `make proof`) stay local. Pushing a
+`v*` tag builds the wheel, sdist and VSIX and attaches them to a GitHub
+Release.
 
 ## Project layout
 

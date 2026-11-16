@@ -38,6 +38,7 @@ infra/data/*
 .bench-work/
 *.egg-info/
 build/
+dist/
 
 # VS Code extension build output
 extension/node_modules/

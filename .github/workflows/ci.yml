@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      # testpaths in pyproject.toml covers security, edit tools, task
+      # checkers, the agent loop, the editor server and config parsing.
+      # No gateway, model, key or Docker daemon is needed.
+      - name: Unit tests
+        run: python -m pytest -q
+
+      # Re-summarise the committed evidence so CI catches a missing or
+      # malformed pack. The printed totals are the published headline
+      # (88,196 vs 13,913 tokens per completed task).
+      - name: Re-summarise the committed evidence
+        if: matrix.python-version == '3.11'
+        run: python bench/pool.py
+
+  extension:
+    name: VS Code extension
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Compile
+        run: npm run compile
+
+      # `npm test` is the protocol test against a live gateway and Ollama,
+      # so it stays in `make extension-test`, not in CI.
+      - name: Package the VSIX
+        run: npm run package
+
+      - name: Upload the VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: himinbjorg-vsix
+          path: extension/himinbjorg.vsix
+          if-no-files-found: error
+          retention-days: 7
+
+  compose:
+    name: Compose config
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Validate docker-compose.yml
+        run: docker compose --env-file .env.example -f infra/docker-compose.yml config -q
