@@ -83,9 +83,50 @@ Approval is worthless if the approved action is not what was displayed.
   served the request.
 - **`.git` integrity.** Direct writes into `.git/` are denied. Git state changes
   go through the git tool, which is gated and shows the command.
+- **Secret shield.** Matching is case-insensitive, since `.ENV` opens `.env`
+  on macOS. `grep` withholds matches from shielded files too, because its
+  output reaches the model without approval.
 - **Shell.** Argv list, never a shell string. No `shell=True`, no pipes, no
   globbing, no command substitution. A denylist for the obvious destructive
-  cases, plus a working-directory pin. Timeout on every execution.
+  cases, plus a working-directory pin. Timeout on every execution. The routes
+  around the denylist are refused as well: `sh -c`, a denied command behind a
+  wrapper (`env`, `xargs`, `timeout`, ...), `find -delete` and `find -exec rm`,
+  arguments that name a credentials file (`cat .env`), and arguments that
+  point outside the repository (`cat ~/.ssh/id_rsa`, `--out=/etc/x`).
+
+### Output redaction
+
+The secret shield keeps credentials files out; `agent/security/redact.py`
+catches credentials inside ordinary files and in shell and git output. Every
+tool result is scanned for documented key shapes (private key blocks, AWS,
+GitHub, Anthropic, OpenAI, OpenRouter, Google, Groq, Tavily, Slack, Stripe)
+and each match is replaced with `[REDACTED:<kind>]` before the model sees it.
+A redacted line cannot be patched by exact match, which is the safe failure.
+Tool output is also wrapped as untrusted, and a closing wrapper tag inside a
+file is neutralised so the file cannot end the wrapper early.
+
+### Sandbox for approved commands
+
+Approval decides whether a command runs; the sandbox limits what it can do
+once it does. On Linux, `agent/security/sandbox.py` applies a Landlock policy
+and then execs the command, so the command and its children inherit it:
+
+- writes only inside the repository, the temp directory and `~/.cache`;
+- reads everywhere except credential and browser directories under `$HOME`
+  (`.ssh`, `.aws`, `.gnupg`, `.kube`, the Himinbjorg config and others) and
+  the install directory's `.env`;
+- no TCP connect or bind (Landlock ABI 4, Linux 6.7+) unless
+  `AGENT_SANDBOX_NETWORK=1`.
+
+Landlock needs no root and no extra package. Bubblewrap was rejected because
+Ubuntu 24.04 blocks the unprivileged user namespaces it depends on. The
+launcher runs under `python -I`, so a repository cannot shadow its imports.
+`AGENT_SANDBOX=auto` (default) uses it where available, `required` refuses
+commands where it is not, `off` disables it. The banner and the editor's
+ready message say which applies.
+
+Not covered: UDP (Landlock has no UDP rules), reads inside the repository
+(the shield and redaction cover those), the git tool, and macOS or Windows.
 
 ---
 

@@ -14,9 +14,13 @@ from . import trace
 from .memory.files import FileMemory
 from .memory.ledger import Ledger, LedgerEntry
 from .security import policy
+from .security import redact as redact_mod
 from .security.policy import InvalidArgs, Permission
 from .tools import write as write_mod
 from .tools.registry import Registry
+
+# Opening or closing wrapper tag inside tool output, in any case or spacing.
+_WRAPPER_TAG = re.compile(r"<\s*(/?)\s*untrusted-tool-output", re.IGNORECASE)
 
 _PROMPT_HEAD = """You are a coding agent working in a local repository.
 
@@ -568,7 +572,13 @@ class Agent:
                     progressed=False)
 
             out = self.registry.dispatch(name, resolved)
-        content = out.content
+        # Credentials inside ordinary files, or in shell and git output,
+        # never reach the model, whatever the tool.
+        content, n_redacted = redact_mod.redact(out.content)
+        if n_redacted:
+            trace.emit("redacted", {"tool": name, "count": n_redacted})
+            content += (f"\n[{n_redacted} credential(s) redacted from this output. "
+                        "Do not try to recover them.]")
 
         # File memory (lever 3): never resend unchanged content.
         if name == "read_file" and out.ok and "path" in resolved:
@@ -648,6 +658,9 @@ class Agent:
         # Tool output is wrapped and marked untrusted. This is defence in
         # depth for the model's benefit; the actual protection is that the
         # gate never reads any of it.
+        # A file that contains the closing tag must not end the wrapper
+        # early and pass the rest off as trusted text.
+        content = _WRAPPER_TAG.sub("\u2039\\1untrusted-tool-output", content)
         wrapped = f"<untrusted-tool-output>\n{content}\n</untrusted-tool-output>"
         self.ledger.append(LedgerEntry(
             turn, "tool", wrapped, kind="tool_result",

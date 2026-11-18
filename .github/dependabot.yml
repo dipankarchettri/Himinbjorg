@@ -11,6 +11,16 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # Must not exceed engines.vscode in package.json, or vsce refuses to
+      # package; bump both together by hand.
+      - dependency-name: "@types/vscode"
+      # Majors need a deliberate migration: the types track the Node 22
+      # the extension targets, and TypeScript 7 breaks the compile.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -18,7 +28,9 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
 
-  - package-ecosystem: docker
+  # Compose files need the docker-compose ecosystem; `docker` looks for a
+  # Dockerfile, finds none in /infra, and the update job fails.
+  - package-ecosystem: docker-compose
     directory: "/infra"
     schedule:
       interval: weekly

@@ -45,7 +45,7 @@ Each requirement of the theme, how it is enforced, and where it is proven:
 | **Reliability**: survive outages and rate limits, say which model took over | Bifrost fallback chains across providers (OpenAI, Anthropic, Gemini, Groq, OpenRouter, then local). The agent announces every fallback, including on the first call, pins the working model for 60 s, then retries the primary and says when it is back. A provider out of credit (its own 402) drops that tier without touching your budget | Scenario 2, [`bench/failover_scenario.py`](bench/failover_scenario.py) |
 | **Budget**: per-user limits enforced before the model call | A Bifrost governance budget per virtual key returns 402 before any provider is reached. The agent drops a tier, then stops and shows the quota | Scenario 3, [`bench/budget_scenario.py`](bench/budget_scenario.py) |
 | **Privacy**: confidential repos stay on local models, whatever the prompt says | A `.agent-confidential` file or `--confidential` selects a local-only virtual key with an empty fallback chain, no web search and no cache. An egress check before every HTTP call refuses any non-local model | Scenario 4, [`bench/privacy_scenario.py`](bench/privacy_scenario.py) |
-| **Approval**: reads are free; writes, shell and git need explicit approval | A gate that takes no conversation input asks on the terminal, or in a VS Code modal dialog, and shows the exact diff. Two denials stop the task. Text in files or prompts cannot grant anything | Scenario 5, [`bench/approval_scenario.py`](bench/approval_scenario.py), plus `make gate-check` |
+| **Approval**: reads are free; writes, shell and git need explicit approval | A gate that takes no conversation input asks on the terminal, or in a VS Code modal dialog, and shows the exact diff. Two denials stop the task. Text in files or prompts cannot grant anything. On Linux an approved command runs in a Landlock sandbox: it writes only inside the repository and cannot reach the network | Scenario 5, [`bench/approval_scenario.py`](bench/approval_scenario.py), plus `make gate-check` |
 | **Fewer tokens, same correctness** | Eight stacked levers, each measured against an all-off baseline on the same binary | Scenario 1, [`bench/benchmark.py`](bench/benchmark.py) |
 
 It runs in a terminal (`himin`) or in VS Code, where approvals are native
@@ -63,7 +63,7 @@ From the committed evidence pack, all 7 stages PASS:
 
 | Scenario | Result |
 | --- | --- |
-| 0 unit tests | 135 passing: security, edit tools, agent loop, task checkers |
+| 0 unit tests | 107 passing in the pack (197 today): security, edit tools, agent loop, task checkers |
 | 1 token efficiency (7 tasks x 10 runs, T=0.7) | 57/70 passed vs 31/70 naive; 13,913 vs 88,196 tokens per completed task (84% fewer). On the 21-file repository: 20/30 vs 3/30 |
 | 1b identical re-run | 4,402 -> 0 provider tokens, every call served from the semantic cache |
 | 2 failover | PASS: broken OpenAI -> Anthropic -> local, with attribution |
@@ -115,7 +115,7 @@ ollama pull qwen2.5:3b               # optional: small model for smoke tests
 cp .env.example .env                 # provider keys optional
 make venv                            # .venv with the agent installed
 make up                              # Bifrost on :8099 + Redis Stack
-make test                            # 135 unit tests, no gateway needed
+make test                            # 197 unit tests, no gateway needed
 make agent TASK="what does divide() do wrong?" REPO=bench/seed
 ```
 
@@ -222,6 +222,8 @@ read from the target repository, which is treated as untrusted input.
 | `AGENT_MODEL_CHEAP`, `AGENT_MODEL_CAPABLE` | Optional cloud tiers, e.g. `gemini/gemini-3.1-flash-lite` and `gemini/gemini-3.5-flash`, or `openrouter/anthropic/claude-haiku-5.5` and `openrouter/anthropic/claude-sonnet-5.5` |
 | `AGENT_PRUNE_STEP` | Default `4`: old tool output is pruned in steps, so the prompt prefix stays stable and provider prompt caching hits. On Claude it cut input cost by about a quarter against `1` |
 | `AGENT_CONTEXT_TOKENS` | Keep below the local model's context window, default 28000 for 32k |
+| `AGENT_SANDBOX` | `auto` (default): approved commands run in a Landlock sandbox on Linux, writing only inside the repository and temp, with no TCP. `required` refuses commands where Landlock is missing; `off` disables it |
+| `AGENT_SANDBOX_NETWORK` | `1` lets sandboxed commands open TCP connections, e.g. for `pip install` |
 
 The gateway's own configuration (providers, virtual keys, budgets) is
 [`infra/data/config.json`](infra/data/config.json).
@@ -255,7 +257,7 @@ Details and per-lever measurements:
 ## Testing and proof
 
 ```sh
-make test       # 135 unit tests, no gateway or model needed
+make test       # 197 unit tests, no gateway or model needed
 make gate-check # the approval prompt on a real terminal, no model involved
 make bench      # token benchmark, naive vs optimized
 make pool       # reproduce the README headline from the committed packs, no gateway

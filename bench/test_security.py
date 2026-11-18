@@ -66,6 +66,9 @@ def test_absolute_path_inside_the_repo_is_allowed():
 @pytest.mark.parametrize("secret", [
     ".env", ".env.local", "id_rsa", "deploy.pem", "server.key",
     ".git/config", ".npmrc", "credentials.json",
+    "id_dsa", "release.jks", "app.keystore", "terraform.tfstate",
+    "terraform.tfstate.backup", ".gnupg/secring.gpg", ".kube/config",
+    "kubeconfig", ".pgpass", ".htpasswd",
 ])
 def test_secret_shield_denies_credential_files(secret):
     assert policy.is_secret_path(secret), f"{secret} should be shielded"
@@ -270,3 +273,122 @@ def test_grep_pattern_is_never_an_option(tmp_path):
     out = read_mod.grep("-V", tmp_path)
     assert "GNU grep" not in out
     assert "a.txt:1:" in out
+
+
+# Fake credentials are assembled at runtime so no key-shaped string is
+# committed (secret scanners would flag it, and rightly).
+_FAKE_KEYS = {
+    "aws_access_key": "AKIA" + "Q" * 16,
+    "github_token": "ghp_" + "a1" * 18,
+    "anthropic_key": "sk-ant-" + "api03-" + "x" * 30,
+    "openrouter_key": "sk-or-v1-" + "f0" * 16,
+    "openai_key": "sk-proj-" + "Ab1" * 10,
+    "google_api_key": "AIza" + "S" * 35,
+    "groq_key": "gsk_" + "z9" * 15,
+    "tavily_key": "tvly-" + "dev-" + "k" * 24,
+    "slack_token": "xoxb-" + "1234567890-abc",
+    "stripe_key": "sk_" + "live_" + "m" * 24,
+}
+
+
+@pytest.mark.parametrize("kind", sorted(_FAKE_KEYS))
+def test_redact_replaces_each_credential_shape(kind):
+    from agent.security.redact import redact
+    text, n = redact(f"API = '{_FAKE_KEYS[kind]}'  # set in prod")
+    assert n == 1
+    assert _FAKE_KEYS[kind] not in text
+    assert f"[REDACTED:{kind}]" in text
+
+
+def test_redact_removes_a_whole_private_key_block():
+    from agent.security.redact import redact
+    block = ("-----BEGIN OPENSSH " + "PRIVATE KEY-----\n" + "b3Blbn" * 20 + "\n"
+             "-----END OPENSSH " + "PRIVATE KEY-----")
+    text, n = redact(f"key:\n{block}\nafter")
+    assert n == 1 and "b3Blbn" not in text and text.endswith("after")
+
+
+def test_redact_leaves_ordinary_code_alone():
+    from agent.security.redact import redact
+    code = ("import sklearn  # sk-learn\ntask-runner --skip-ask\n"
+            "AKIA_PREFIX = 'AKIA'\nheader = 'Bearer ' + token\n")
+    assert redact(code) == (code, 0)
+
+
+def test_tool_output_reaches_the_model_redacted(tmp_path):
+    from bench.test_loop import call, make_agent
+    from bench.tasks import TASKS_BY_ID, materialise
+    repo = materialise(TASKS_BY_ID["zero_check"], tmp_path / "repo")
+    key = _FAKE_KEYS["openai_key"]
+    (repo / "settings.py").write_text(f"OPENAI_KEY = '{key}'\nDEBUG = True\n")
+    agent, client = make_agent(repo, [([call("read_file", path="settings.py")], ""),
+                                      ([call("grep", pattern="OPENAI_KEY")], "")])
+    agent.run("what is in settings.py?")
+    sent = " ".join(str(m) for spec in client.specs for m in spec.messages)
+    assert key not in sent
+    assert "[REDACTED:openai_key]" in sent
+    assert "DEBUG = True" in sent
+
+
+def _shell(command, repo=None):
+    spec = policy.ToolSpec("run_command", Permission.GATED, "", {}, lambda **k: "", mutating=True)
+    return policy.validate_args(spec, {"command": command}, repo or REPO)
+
+
+@pytest.mark.parametrize("command", [
+    ["sh", "-c", "rm -rf ."],
+    ["bash", "-c", "echo hi"],
+    "env rm -rf build",
+    "timeout 5 rm notes.txt",
+    "xargs kill",
+    "nice -n 10 bash -c true",
+    "find . -delete",
+    "find . -name '*.pyc' -exec rm {} +",
+    "cat .env",
+    "cat config/.env.local",
+    "cat ~/.ssh/id_rsa",
+    "cat /etc/passwd",
+    "cat ../other-project/secrets.py",
+    "python -m tool --output=/tmp/x",
+])
+def test_shell_refuses_routes_around_the_gate(command):
+    with pytest.raises(InvalidArgs):
+        _shell(command)
+
+
+@pytest.mark.parametrize("command", [
+    "python -m pytest -q",
+    "pytest tests/test_orders.py -k 'not slow'",
+    "npm test",
+    "ruff check .",
+    "grep -rn kill src",
+    "find . -name '*.py'",
+    "python -c 'print(1)'",
+    "pytest -p no:cacheprovider --basetemp=build/tmp",
+    "git --no-pager log -n 1",
+    "ls -la",
+    "node scripts/build.js --out /dev/null",
+])
+def test_shell_allows_ordinary_dev_commands(command):
+    assert _shell(command)["command"]
+
+
+def test_path_with_nul_byte_is_refused_not_a_crash(tmp_path):
+    spec = policy.ToolSpec("read_file", Permission.FREE, "", {}, lambda **k: "")
+    with pytest.raises(InvalidArgs):
+        policy.validate_args(spec, {"path": "calc\x00.py"}, tmp_path)
+
+
+def test_symlink_loop_is_refused_or_contained(tmp_path):
+    import os
+    os.symlink("loop", tmp_path / "loop")
+    spec = policy.ToolSpec("read_file", Permission.FREE, "", {}, lambda **k: "")
+    try:
+        policy.validate_args(spec, {"path": "loop"}, tmp_path)
+    except InvalidArgs:
+        pass                       # any other exception type fails the test
+
+
+@pytest.mark.parametrize("name", [".ENV", ".Env.Local", "ID_RSA", "Credentials.JSON"])
+def test_secret_shield_ignores_case(name):
+    assert policy.is_secret_path(name)

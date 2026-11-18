@@ -12,6 +12,7 @@ from . import telemetry
 from .memory.ledger import LedgerEntry
 from . import trace
 from .security.privacy import PrivacyMode, PrivacyViolation
+from .tools import shell as shell_mod
 from .tools.registry import Registry
 
 
@@ -31,6 +32,7 @@ def banner(settings, privacy, registry) -> str:
         f"  repo      : {settings.repo_root}",
         f"  gateway   : {settings.bifrost_base_url}",
         f"  mode      : {privacy.describe()}",
+        f"  sandbox   : {shell_mod.sandbox_status(settings.sandbox, settings.sandbox_network)}",
         f"  tools     : {tools}",
         f"  levers on : {levers}",
         "",

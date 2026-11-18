@@ -32,7 +32,10 @@ class InvalidArgs(ValueError):
 SECRET_PATTERNS = (
     r"(^|/)\.env($|\..*)", r"(^|/)\.envrc$",
     r"\.pem$", r"\.key$", r"\.p12$", r"\.pfx$",
-    r"(^|/)id_rsa", r"(^|/)id_ed25519", r"(^|/)id_ecdsa",
+    r"(^|/)id_rsa", r"(^|/)id_ed25519", r"(^|/)id_ecdsa", r"(^|/)id_dsa",
+    r"\.jks$", r"\.keystore$", r"\.tfstate(\.backup)?$",
+    r"(^|/)\.gnupg/", r"(^|/)\.kube/config$", r"(^|/)kubeconfig$",
+    r"(^|/)\.pgpass$", r"(^|/)\.htpasswd$",
     r"(^|/)\.git/config$", r"(^|/)\.git-credentials$",
     r"(^|/)\.npmrc$", r"(^|/)\.pypirc$", r"(^|/)\.netrc$",
     r"(^|/)\.aws/", r"(^|/)\.ssh/", r"(^|/)\.docker/config\.json$",
@@ -50,6 +53,17 @@ SHELL_DENY = (
     "iptables", "mount", "umount", "kill", "pkill", "killall",
     "curl", "wget", "nc", "ncat", "telnet", "ssh", "scp", "rsync",
 )
+
+# Interpreters that turn an argument back into a shell script.
+SHELL_INTERPRETERS = ("sh", "bash", "zsh", "dash", "ksh", "fish")
+
+# Commands that run another command. What they wrap is checked too, or
+# `env rm -rf .` would pass as "env".
+COMMAND_WRAPPERS = ("env", "nice", "nohup", "timeout", "xargs", "stdbuf", "time",
+                    "command", "exec", "busybox", "doas", "ionice", "setsid", "watch")
+
+# Arguments that may point outside the repository.
+SAFE_OUTSIDE_PATHS = ("/dev/null",)
 
 _INJECTION_MARKERS = (
     "pre-approved", "preapproved", "do not prompt", "don't prompt",
@@ -91,7 +105,9 @@ def detect_injection_markers(text: str) -> bool:
 
 
 def is_secret_path(rel_path: str) -> bool:
-    norm = rel_path.replace("\\", "/")
+    # Lower-cased: on a case-insensitive filesystem (macOS, Windows by
+    # default) `.ENV` opens `.env`. Every pattern is written in lower case.
+    norm = rel_path.replace("\\", "/").lower()
     return any(rx.search(norm) for rx in _SECRET_RE)
 
 
@@ -103,10 +119,15 @@ def resolve_in_repo(raw_path: str, repo_root: Path) -> Path:
     """
     if raw_path is None:
         raise InvalidArgs("path is required")
+    if "\x00" in raw_path:
+        raise InvalidArgs("path contains a NUL byte")
     candidate = Path(raw_path)
     if not candidate.is_absolute():
         candidate = repo_root / candidate
-    resolved = candidate.resolve()
+    try:
+        resolved = candidate.resolve()
+    except (OSError, RuntimeError, ValueError) as exc:     # symlink loops, bad names
+        raise InvalidArgs(f"cannot resolve path {raw_path!r}: {exc}") from exc
     root = repo_root.resolve()
     if resolved != root and root not in resolved.parents:
         # The hint matters with small local models: they sometimes copy the
@@ -154,12 +175,53 @@ def validate_args(spec: ToolSpec, args: dict, repo_root: Path) -> dict:
                 raise InvalidArgs(
                     f"shell metacharacter {meta!r} refused; commands run as argv, never through a shell"
                 )
-        base = os.path.basename(argv[0])
-        if base in SHELL_DENY:
-            raise InvalidArgs(f"command {base!r} is on the refusal list")
+        _check_argv(argv, repo_root)
         out["command"] = argv
 
     return out
+
+
+def _check_argv(argv: list[str], repo_root: Path) -> None:
+    """Refuse commands that the approval prompt makes easy to misjudge.
+
+    Not a sandbox (an approved command still runs with the user's rights),
+    but it stops the obvious routes around the deny list and the secret
+    shield before a human is asked about them.
+    """
+    base = os.path.basename(argv[0])
+    if base in SHELL_DENY:
+        raise InvalidArgs(f"command {base!r} is on the refusal list")
+    names = [os.path.basename(a) for a in argv]
+    if base in SHELL_INTERPRETERS and "-c" in argv[1:]:
+        raise InvalidArgs(f"{base} -c runs a shell script; run the command directly as argv")
+    if base in COMMAND_WRAPPERS:
+        hit = next((n for n in names[1:] if n in SHELL_DENY or n in SHELL_INTERPRETERS), None)
+        if hit:
+            raise InvalidArgs(f"{base} wraps {hit!r}, which is refused")
+    if base == "find":
+        if "-delete" in argv:
+            raise InvalidArgs("find -delete is refused")
+        for i, a in enumerate(argv[:-1]):
+            if a in ("-exec", "-execdir", "-ok", "-okdir") and names[i + 1] in SHELL_DENY:
+                raise InvalidArgs(f"find {a} {names[i + 1]!r} is refused")
+    root = repo_root.resolve()
+    for arg in argv[1:]:
+        # `--output=/etc/x` carries a path after the `=`.
+        value = arg.split("=", 1)[1] if arg.startswith("-") and "=" in arg else arg
+        if not value or value.startswith("-") and "=" not in arg:
+            continue
+        if value in SAFE_OUTSIDE_PATHS:
+            continue
+        if value.startswith("~") or value.startswith("/") or ".." in Path(value).parts:
+            target = Path(os.path.expanduser(value))
+            target = (target if target.is_absolute() else root / target).resolve()
+            if target != root and root not in target.parents:
+                raise InvalidArgs(
+                    f"argument {arg!r} points outside the repository; "
+                    f"use paths relative to the repository root")
+            value = os.path.relpath(target, root)
+        if is_secret_path(os.path.normpath(value)):
+            raise InvalidArgs(f"argument {arg!r} names a credentials file")
 
 
 def _read_tty_response(prompt: str) -> tuple[str, str]:

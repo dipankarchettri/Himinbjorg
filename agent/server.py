@@ -40,6 +40,7 @@ from . import trace
 from .memory.ledger import LedgerEntry
 from .security import policy
 from .security.privacy import PrivacyViolation
+from .tools import shell as shell_mod
 
 
 class Channel:
@@ -207,6 +208,8 @@ class Server:
         self.ch.send("ready", repo=str(self.settings.repo_root),
                      mode=self.privacy.describe(), confidential=self.settings.confidential,
                      tools=sorted(self.registry.specs), quota=quota.describe(),
+                     sandbox=shell_mod.sandbox_status(self.settings.sandbox,
+                                                      self.settings.sandbox_network),
                      trace=str(trace.path()))
         threading.Thread(target=self._reader, daemon=True).start()
         while True:

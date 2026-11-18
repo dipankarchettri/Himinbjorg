@@ -131,6 +131,11 @@ class Settings:
     # for the session cost line). Empty disables the lookup.
     bifrost_setup_token: str = ""
     prune_step: int = 4         # measured: stable prefix, fewer prompt-cache writes (VERIFIED.md)
+    # Approved commands run in a Landlock sandbox (agent/security/sandbox.py):
+    # "auto" where the kernel supports it, "required" to refuse commands
+    # when it does not, "off" to run them with the user's full rights.
+    sandbox: str = "auto"
+    sandbox_network: bool = False
     context_budget: int = 28_000
 
     @property
@@ -163,6 +168,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--serve", action="store_true",
                    help="Run as the editor server (JSON lines on stdio), for the VS Code extension")
     return p
+
+
+def _sandbox_mode(value: str) -> str:
+    mode = value.strip().lower()
+    if mode not in ("auto", "required", "off"):
+        raise SystemExit(f"AGENT_SANDBOX must be auto, required or off, not {value!r}")
+    return mode
 
 
 def load(argv: list[str] | None = None) -> Settings:
@@ -200,6 +212,8 @@ def load(argv: list[str] | None = None) -> Settings:
         tavily_api_key=env.get("TAVILY_API_KEY") or None,
         bifrost_setup_token=env.get("BIFROST_SETUP_TOKEN", ""),
         prune_step=int(env.get("AGENT_PRUNE_STEP", "4")),
+        sandbox=_sandbox_mode(env.get("AGENT_SANDBOX", "auto")),
+        sandbox_network=env.get("AGENT_SANDBOX_NETWORK", "0").strip().lower() in ("1", "true", "yes"),
         context_budget=int(env.get("AGENT_CONTEXT_TOKENS", "28000")),
         repo_root=repo_root,
         confidential=is_confidential(repo_root, args.confidential),

@@ -8,7 +8,10 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+
+from ..security import sandbox as sandbox_mod
 
 TIMEOUT_SECONDS = 90
 MAX_OUTPUT = 6000
@@ -28,12 +31,57 @@ def project_python(repo_root: Path) -> str:
     return shutil.which("python3") or shutil.which("python") or sys.executable
 
 
-def run_command(command, repo_root: Path, **_) -> str:
+# The install directory: its .env holds the provider keys.
+_INSTALL_DIR = Path(__file__).resolve().parents[2]
+
+
+def sandbox_status(mode: str, network: bool) -> str:
+    """One line for the session banner: how approved commands will run."""
+    if mode == "off":
+        return "off (AGENT_SANDBOX=off): commands run with your full rights"
+    abi = sandbox_mod.abi_version()
+    if abi < 1:
+        if mode == "required":
+            return "required but unavailable: commands will be refused"
+        return "unavailable on this system: commands run with your full rights"
+    net = "network on" if network or abi < 4 else "no network"
+    return f"Landlock ABI {abi}: writes only in the repository and temp, {net}"
+
+
+def sandboxed_argv(argv: list[str], repo_root: Path, network: bool) -> list[str]:
+    """Wrap argv in the Landlock launcher.
+
+    The launcher is run as a file under `python -I`: no PYTHONPATH, no user
+    site, and not the current directory, so a repository cannot shadow
+    the modules it imports. It imports only the standard library.
+    """
+    write = [Path(repo_root), Path(tempfile.gettempdir())]
+    cache = Path.home() / ".cache"
+    if cache.is_dir():
+        write.append(cache)
+    wrapped = [sys.executable, "-I", str(Path(sandbox_mod.__file__).resolve())]
+    for w in write:
+        wrapped += ["--write", str(w)]
+    for d in sandbox_mod.default_deny(_INSTALL_DIR):
+        wrapped += ["--deny", str(d)]
+    if network:
+        wrapped.append("--net")
+    return wrapped + ["--", *argv]
+
+
+def run_command(command, repo_root: Path, sandbox: str = "off", network: bool = False,
+                **_) -> str:
     argv = command if isinstance(command, list) else [str(command)]
     if argv and argv[0] in ("python", "python3"):
         argv = [project_python(repo_root), *argv[1:]]
     elif argv and argv[0] in ("pytest", "py.test"):
         argv = [project_python(repo_root), "-m", "pytest", *argv[1:]]
+    if sandbox != "off":
+        if sandbox_mod.abi_version() >= 1:
+            argv = sandboxed_argv(argv, repo_root, network)
+        elif sandbox == "required":
+            return ("ERROR: AGENT_SANDBOX=required, but Landlock is not available on this "
+                    "system, so the command was not run.")
     try:
         proc = subprocess.run(
             argv, cwd=str(repo_root), capture_output=True, stdin=subprocess.DEVNULL, text=True,

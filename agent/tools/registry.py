@@ -115,7 +115,8 @@ class Registry:
             "run_command", Permission.GATED, "Run a command (argv, no shell).",
             _schema("run_command", "Run a command (argv, no shell).",
                     {"command": {"type": "string"}}, ["command"]),
-            partial(shell_mod.run_command, repo_root=r), mutating=True))
+            partial(shell_mod.run_command, repo_root=r, sandbox=self.settings.sandbox,
+                    network=self.settings.sandbox_network), mutating=True))
         self._add(ToolSpec(
             "git_op", Permission.GATED, "Git: status, diff, add, log, commit.",
             _schema("git_op", "Git: status, diff, add, log, commit.",

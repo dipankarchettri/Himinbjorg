@@ -195,7 +195,7 @@ directory with a per-scenario log, the JSON artifacts, and `SUMMARY.md`.
 
 | Scenario | Script | Make target | Status |
 | --- | --- | --- | --- |
-| 0 unit tests | `bench/test_*.py` | `make test` | 135 passing |
+| 0 unit tests | `bench/test_*.py` | `make test` | 107 passing in the pack (197 today) |
 | 1 token efficiency | `bench/benchmark.py` | `make bench` | 57/70 vs 31/70 passed, 84% fewer tokens per completed task (pooled, table below) |
 | 2 failover | `bench/failover_scenario.py` | `make scenario-failover` | PASS |
 | 3 budget | `bench/budget_scenario.py` | `make scenario-budget` | PASS (synthetic pricing, disclosed) |

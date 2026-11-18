@@ -192,7 +192,11 @@ function onEvent(ev: AgentEvent): void {
     case "ready":
       mode = String(ev.mode ?? "");
       confidential = ev.confidential === true;
-      view.post({ kind: "info", text: `Ready in ${path.basename(String(ev.repo))} · ${mode}\n${ev.quota ?? ""}` });
+      view.post({
+        kind: "info",
+        text: `Ready in ${path.basename(String(ev.repo))} · ${mode}\n${ev.quota ?? ""}` +
+          (ev.sandbox ? `\nsandbox: ${String(ev.sandbox)}` : ""),
+      });
       renderStatus();
       break;
     case "log":
