@@ -170,8 +170,9 @@ def validate_args(spec: ToolSpec, args: dict, repo_root: Path) -> dict:
             raise InvalidArgs("command must be a string or a list")
         if not argv:
             raise InvalidArgs("empty command")
+        code = _inline_code_index(argv)
         for meta in ("|", ";", "&&", "||", ">", ">>", "<", "`", "$("):
-            if any(meta in part for part in argv):
+            if any(meta in part for i, part in enumerate(argv) if i != code):
                 raise InvalidArgs(
                     f"shell metacharacter {meta!r} refused; commands run as argv, never through a shell"
                 )
@@ -179,6 +180,27 @@ def validate_args(spec: ToolSpec, args: dict, repo_root: Path) -> dict:
         out["command"] = argv
 
     return out
+
+
+# Interpreters whose inline-code flag takes a program, not shell syntax.
+INLINE_CODE_FLAGS = {"python": "-c", "python3": "-c", "node": "-e"}
+
+
+def _inline_code_index(argv: list[str]) -> int | None:
+    """Index of the code argument in `python -c CODE` or `node -e CODE`.
+
+    That argument is a program in its own language, so `;` or `>` in it
+    are Python or JavaScript, not shell. Measured 2026-11-18: refusing
+    `python3 -c "from m import f; print(f(7))"` blocked Gemma 31B three
+    turns running on three QuixBugs tasks. Refusing it bought nothing:
+    the interpreter already runs any code it is given, so the approval
+    prompt and the sandbox are what guard it. Only that one argument is
+    exempt; the rest of the command is checked as before.
+    """
+    flag = INLINE_CODE_FLAGS.get(os.path.basename(argv[0]))
+    if flag and len(argv) > 2 and argv[1] == flag:
+        return 2
+    return None
 
 
 def _check_argv(argv: list[str], repo_root: Path) -> None:

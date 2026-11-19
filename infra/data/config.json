@@ -99,6 +99,26 @@
           "weight": 1.0
         }
       ]
+    },
+    "vllm": {
+      "keys": [
+        {
+          "name": "vllm-local",
+          "value": "env.VLLM_API_KEY",
+          "models": [
+            "gemma-4-31b-it-qat-w4a16"
+          ],
+          "weight": 1.0,
+          "vllm_key_config": {
+            "url": "http://host.docker.internal:8012",
+            "model_name": "gemma-4-31b-it-qat-w4a16"
+          }
+        }
+      ],
+      "network_config": {
+        "base_url": "http://host.docker.internal:8012",
+        "allow_private_network": true
+      }
     }
   },
   "vector_store": {
@@ -206,6 +226,16 @@
             "key_ids": [
               "*"
             ]
+          },
+          {
+            "provider": "vllm",
+            "weight": 1.0,
+            "allowed_models": [
+              "gemma-4-31b-it-qat-w4a16"
+            ],
+            "key_ids": [
+              "*"
+            ]
           }
         ]
       },
@@ -254,6 +284,87 @@
             ]
           }
         ]
+      },
+      {
+        "id": "vk-user-budget-real",
+        "name": "Budget Demo (real prices)",
+        "value": "sk-bf-budget-real-key",
+        "is_active": true,
+        "provider_configs": [
+          {
+            "provider": "gemini",
+            "weight": 1.0,
+            "allowed_models": [
+              "gemini-3.5-flash-lite",
+              "gemini-3.1-flash-lite"
+            ],
+            "key_ids": [
+              "*"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "vk-user-ladder",
+        "name": "Ladder Demo (two cloud budgets, local free)",
+        "value": "sk-bf-ladder-key",
+        "is_active": true,
+        "provider_configs": [
+          {
+            "id": 901,
+            "provider": "gemini",
+            "weight": 1.0,
+            "allowed_models": [
+              "gemini-3.5-flash",
+              "gemini-3.5-flash-lite",
+              "gemini-3.1-flash-lite"
+            ],
+            "key_ids": [
+              "*"
+            ]
+          },
+          {
+            "id": 903,
+            "provider": "groq",
+            "weight": 1.0,
+            "allowed_models": [
+              "openai/gpt-oss-120b",
+              "openai/gpt-oss-20b"
+            ],
+            "key_ids": [
+              "*"
+            ]
+          },
+          {
+            "id": 902,
+            "provider": "vllm",
+            "weight": 1.0,
+            "allowed_models": [
+              "gemma-4-31b-it-qat-w4a16"
+            ],
+            "key_ids": [
+              "*"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "vk-bench-local",
+        "name": "Benchmark (local vLLM, no limits)",
+        "value": "sk-bf-bench-local-key",
+        "is_active": true,
+        "provider_configs": [
+          {
+            "provider": "vllm",
+            "weight": 1.0,
+            "allowed_models": [
+              "gemma-4-31b-it-qat-w4a16"
+            ],
+            "key_ids": [
+              "*"
+            ]
+          }
+        ]
       }
     ],
     "budgets": [
@@ -267,6 +378,24 @@
         "id": "bud-budget-demo",
         "virtual_key_id": "vk-user-budget-demo",
         "max_limit": 0.05,
+        "reset_duration": "1M"
+      },
+      {
+        "id": "bud-budget-real",
+        "virtual_key_id": "vk-user-budget-real",
+        "max_limit": 0.005,
+        "reset_duration": "1M"
+      },
+      {
+        "id": "bud-ladder-gemini",
+        "provider_config_id": 901,
+        "max_limit": 0.0008,
+        "reset_duration": "1M"
+      },
+      {
+        "id": "bud-ladder-groq",
+        "provider_config_id": 903,
+        "max_limit": 0.0006,
         "reset_duration": "1M"
       }
     ],

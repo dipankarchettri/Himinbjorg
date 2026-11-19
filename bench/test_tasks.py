@@ -107,3 +107,40 @@ def test_adding_a_test_is_allowed_but_editing_one_is_not(tmp_path):
     solve_bulk(repo)
     _sub(repo, "tests/test_orders.py", "assert inv.available(\"PEN-01\") == 100", "assert True")
     assert not task.verify(repo)
+
+
+def test_quixbugs_tasks_load_and_grade_against_the_original_tests(tmp_path):
+    from bench.tasks import QUIXBUGS_TASKS
+    assert len(QUIXBUGS_TASKS) >= 20
+    assert len({t.id for t in QUIXBUGS_TASKS}) == len(QUIXBUGS_TASKS)
+    task = TASKS_BY_ID["qb_to_base"]
+    repo = materialise(task, tmp_path / "r")
+    assert not task.verify(repo)
+    src = repo / "to_base.py"
+    buggy, fixed = "result = result + alphabet[i]", "result = alphabet[i] + result"
+    # The known one-line fix passes, even if the agent also weakened the test.
+    src.write_text(src.read_text().replace(buggy, fixed))
+    (repo / "tests" / "test_to_base.py").write_text("def test_nothing():\n    pass\n")
+    assert task.verify(repo)
+    # A weakened test does not hide the bug: grading restores the original.
+    src.write_text(src.read_text().replace(fixed, buggy))
+    (repo / "tests" / "test_to_base.py").write_text("def test_nothing():\n    pass\n")
+    assert not task.verify(repo)
+
+
+def test_a_quixbugs_program_that_loops_forever_fails_fast_and_says_where(tmp_path):
+    # Measured 2026-11-18: buggy bitcount loops forever, so every test run
+    # held the agent until the 90 s shell timeout with no hint which case
+    # hung. The fixture's conftest fails each case after CASE_SECONDS.
+    import subprocess
+    import time
+    from bench.quixbugs_build import CASE_SECONDS
+    task = TASKS_BY_ID["qb_bitcount"]
+    repo = materialise(task, tmp_path / "r")
+    (repo / "tests" / "bitcount.jsonl").write_text("[[127], 7]\n")
+    started = time.time()
+    proc = subprocess.run([sys.executable, "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider"],
+                          cwd=repo, capture_output=True, text=True, timeout=60)
+    assert time.time() - started < CASE_SECONDS + 10
+    assert proc.returncode != 0
+    assert "TimeoutError" in proc.stdout and "infinite loop" in proc.stdout

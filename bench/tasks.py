@@ -10,6 +10,7 @@ would make the benchmark measure what it was tuned for.
 from __future__ import annotations
 
 import re
+import os
 import shutil
 import subprocess
 import sys
@@ -95,12 +96,25 @@ def total_price(unit, qty):
 '''
 
 
+def _fresh_env(repo: Path) -> dict[str, str]:
+    """Grade the source on disk, never stale bytecode.
+
+    Measured 2026-11-18: a one-line fix of the same length, written in the
+    same second as the previous test run, left the .pyc looking current
+    (CPython checks mtime in whole seconds plus size), so the fixed code
+    was graded as still buggy. Drop the caches and write none.
+    """
+    for cache in repo.rglob("__pycache__"):
+        shutil.rmtree(cache, ignore_errors=True)
+    return {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+
+
 def _run_pytest(repo: Path, test_name: str | None = None) -> bool:
     target = "test_calc.py" + (f"::{test_name}" if test_name else "")
     try:
         proc = subprocess.run(
-            [sys.executable, "-m", "pytest", target, "-q"],
-            cwd=repo, capture_output=True, text=True, timeout=120)
+            [sys.executable, "-B", "-m", "pytest", target, "-q"],
+            cwd=repo, capture_output=True, text=True, timeout=120, env=_fresh_env(repo))
     except (subprocess.TimeoutExpired, OSError):
         return False
     return proc.returncode == 0
@@ -135,8 +149,8 @@ def _load_fixture(name: str, patches: tuple[tuple[str, str, str], ...] = ()) -> 
 def _pytest_all(repo: Path) -> bool:
     try:
         proc = subprocess.run(
-            [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"],
-            cwd=repo, capture_output=True, text=True, timeout=120)
+            [sys.executable, "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider"],
+            cwd=repo, capture_output=True, text=True, timeout=120, env=_fresh_env(repo))
     except (subprocess.TimeoutExpired, OSError):
         return False
     return proc.returncode == 0
@@ -372,7 +386,43 @@ TASKS: list[Task] = [
     ),
 ]
 
-TASKS_BY_ID = {t.id: t for t in TASKS}
+# Outside tasks: a QuixBugs subset (bench/fixtures/quixbugs, MIT; built by
+# bench/quixbugs_build.py). One-line bugs in classic algorithms, written by
+# other people, so they test the agent on code it was not tuned against.
+QUIXBUGS_DIR = FIXTURES / "quixbugs"
+
+
+def _verify_quixbugs(name: str, files: dict[str, str]):
+    def verify(repo: Path) -> bool:
+        # Grade against the original tests, whatever the agent did to them.
+        for rel in (f"tests/test_{name}.py", f"tests/{name}.jsonl", "conftest.py"):
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (repo / rel).write_text(files[rel])
+        return _pytest_all(repo)
+    return verify
+
+
+def _quixbugs_tasks() -> list[Task]:
+    out = []
+    if not QUIXBUGS_DIR.is_dir():
+        return out
+    for d in sorted(p for p in QUIXBUGS_DIR.iterdir() if p.is_dir()):
+        name = d.name
+        files = _load_fixture(f"quixbugs/{name}")
+        out.append(Task(
+            id=f"qb_{name}",
+            prompt=(f"The tests in tests/test_{name}.py fail. Find and fix the bug in "
+                    f"{name}.py. Do not change the tests."),
+            files=files,
+            verify=_verify_quixbugs(name, files),
+            stresses="outside task (QuixBugs), one-line bug",
+        ))
+    return out
+
+
+QUIXBUGS_TASKS: list[Task] = _quixbugs_tasks()
+
+TASKS_BY_ID = {t.id: t for t in TASKS + QUIXBUGS_TASKS}
 
 
 def materialise(task: Task, dest: Path) -> Path:

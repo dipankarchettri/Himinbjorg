@@ -168,6 +168,11 @@ class Agent:
     # Measured on a Gemini free tier: a 429 carried retry_after 34 s, and a
     # session-long pin left a run on the local model after a blip.
     STICKY_SECONDS = 60.0
+    # A 429 gets one retry after this wait; a second in a row stops the task.
+    # Measured 2026-11-18: the loop "retried once" on every turn with no
+    # wait, so a virtual key's hourly token limit burned all 18 turns in 8 s
+    # and graded as a failed task.
+    RATE_LIMIT_WAIT = 5.0
 
     def __init__(self, settings, privacy, client: llm_mod.LLMClient, registry: Registry,
                  printer=print):
@@ -184,7 +189,11 @@ class Agent:
             horizon=self.ledger.horizon if settings.levers.pruning else None)
         self.stats = LoopStats()
         self._last_provider: str | None = None
-        self._seen_tool_calls: dict[str, str] = {}
+        self._seen_tool_calls: dict[str, tuple[int, str]] = {}   # sig -> (turn, head)
+        self._dup_warned: set[str] = set()    # sigs already answered with the stub
+        # (provider, "provider/model") of a fallback announced as "unavailable"
+        # while that provider has its own budget: confirmed later if it was.
+        self._budget_unconfirmed: tuple[str, str] | None = None
         self._tier_in_flight = None
         self._failed_edits = 0
         self._edits_preapproved = False   # set by the operator answering "a"
@@ -251,6 +260,7 @@ class Agent:
                                            pinned=True, kind="task"))
             # Files may have been edited outside the agent between tasks.
             self._seen_tool_calls.clear()
+            self._dup_warned.clear()
         try:
             return self._run_task(task, base)
         except KeyboardInterrupt:
@@ -280,6 +290,7 @@ class Agent:
         self._nudges = 0
         self._nudged_no_edit = False
         self._denials = 0
+        rate_limited = 0
 
         self._last_turn = base
         for step in range(1, max_turns + 1):
@@ -311,7 +322,14 @@ class Agent:
                 decision = router_mod.RoutingDecision(nxt, "provider payment required", "escalated")
                 continue
             except llm_mod.RateLimited as exc:
-                self.print(f"\n  Rate limited: {exc}. The fallback chain handles this; retrying once.")
+                rate_limited += 1
+                if rate_limited > 1:
+                    self.ledger.close_dangling_tool_calls(self._last_turn)
+                    self.print(f"\n  Still rate limited: {exc}. Stopping; try again later.")
+                    return "stopped: rate limited"
+                self.print(f"\n  Rate limited: {exc}. Retrying once in "
+                           f"{self.RATE_LIMIT_WAIT:.0f} s.")
+                time.sleep(self.RATE_LIMIT_WAIT)
                 continue
             except (llm_mod.ModelNotAllowed, llm_mod.AuthFailed) as exc:
                 # Not retryable: a routing or provisioning fault.
@@ -332,6 +350,7 @@ class Agent:
                 self.print(f"\n  Gateway error: {exc}")
                 return f"stopped: gateway error: {exc}"
 
+            rate_limited = 0
             self._announce_provider(result)
 
             if not result.tool_calls:
@@ -418,7 +437,17 @@ class Agent:
 
     def _call(self, decision, turn: int, mutating: bool):
         """Returns (result, decision_actually_used)."""
-        quota = budget_mod.poll(self.settings, self.privacy.virtual_key)
+        quota = budget_mod.poll(self.settings, self.privacy.virtual_key,
+                                ttl_seconds=5 if self._budget_unconfirmed else 20)
+        if self._budget_unconfirmed:
+            provider, label = self._budget_unconfirmed
+            spent = budget_mod.provider_exhausted(quota, provider)
+            if spent:
+                self._budget_unconfirmed = None
+                self.print(f"\n  {label}: that fallback was its budget "
+                           f"(${spent[0]:.4f} of ${spent[1]:.4f} used).")
+                trace.emit("provider_change", {"from": label, "reason": "provider_budget",
+                                               "confirmed_late": True})
         if budget_mod.should_preempt(quota, decision.tier):
             nxt = budget_mod.degrade(decision.tier)
             if nxt:
@@ -488,13 +517,26 @@ class Agent:
         # Previously the first call was exempt, so a session that started
         # during an outage never said who had taken over.
         if result.routing.is_fallback:
-            self.print(f"\n  Provider changed: "
-                       f"{result.routing.primary_provider}/{result.routing.primary_model} "
-                       f"unavailable, now served by {served}. Staying on it for "
-                       f"{self.STICKY_SECONDS:.0f}s, then retrying the primary.")
+            primary = f"{result.routing.primary_provider}/{result.routing.primary_model}"
+            # Measured 2026-11-18: a provider over its own budget inside the
+            # key is skipped by the gateway's fallback chain, so the agent
+            # saw a plain fallback and called a budget stop "unavailable".
+            # One fresh quota read per transition tells the two apart.
+            quota = budget_mod.poll(self.settings, self.privacy.virtual_key, ttl_seconds=0)
+            spent = budget_mod.provider_exhausted(quota, result.routing.primary_provider)
+            if spent is None and result.routing.primary_provider in quota.providers:
+                # Usage reaches the quota endpoint asynchronously. Measured:
+                # the gateway refused Gemini at $0.0009 >= $0.0008 while the
+                # quota still read under the limit seconds later. Say what is
+                # known now; confirm on a later call rather than wait here.
+                self._budget_unconfirmed = (result.routing.primary_provider, primary)
+            why = (f"budget used up (${spent[0]:.4f} of ${spent[1]:.4f})" if spent
+                   else "unavailable")
+            self.print(f"\n  Provider changed: {primary} {why}, now served by {served}. "
+                       f"Staying on it for {self.STICKY_SECONDS:.0f}s, then retrying the primary.")
             trace.emit("provider_change", {
-                "from": f"{result.routing.primary_provider}/{result.routing.primary_model}",
-                "to": served, "request_id": result.request_id})
+                "from": primary, "to": served, "request_id": result.request_id,
+                "reason": "provider_budget" if spent else "unavailable"})
         elif self._last_provider_was_fallback:
             self.print(f"\n  Provider restored: now served by {served}.")
             trace.emit("provider_change", {"from": self._last_provider, "to": served,
@@ -543,6 +585,7 @@ class Agent:
                 out = dry
 
         sig = f"{name}:{json.dumps(resolved, sort_keys=True, default=str)}"
+        force_full = False
         if out is None:
             if spec.permission is Permission.GATED:
                 self.stats.approvals_requested += 1
@@ -563,13 +606,29 @@ class Agent:
             if decision.decision == "APPROVED":
                 self.stats.approvals_granted += 1
 
-            # Deduplicate identical calls within a session (lever 8).
-            if (self.settings.levers.loop_limits and sig in self._seen_tool_calls
-                    and not spec.mutating):
-                return self._tool_result(
-                    call, turn,
-                    f"[identical call already made this session]\n{self._seen_tool_calls[sig]}",
-                    progressed=False)
+            # Deduplicate identical calls within a session (lever 8). The
+            # stub is a hint, not a refusal: if the model asks again, it gets
+            # the real result. Measured 2026-11-18 on QuixBugs with Gemma 31B:
+            # the model re-read a file it could still see, got the stub three
+            # times and the run stopped for no progress (0/3 on lis, where
+            # the naive arm passed 3/3 by simply getting the file again).
+            # Only while the earlier result is still in the context: once
+            # pruning has elided it, the stub would point at nothing and
+            # cost the model a turn to ask again.
+            seen = self._seen_tool_calls.get(sig)
+            if (self.settings.levers.loop_limits and seen and not spec.mutating
+                    and not self._elided_by_next_request(seen[0], turn)):
+                if sig not in self._dup_warned:
+                    self._dup_warned.add(sig)
+                    return self._tool_result(
+                        call, turn,
+                        f"[identical call already made this session; the result is earlier "
+                        f"in this conversation, first 400 characters below. Use it: edit, or "
+                        f"answer. Repeat the call only if you cannot find it.]\n"
+                        f"{seen[1]}",
+                        progressed=False)
+                self._dup_warned.discard(sig)
+                force_full = True
 
             out = self.registry.dispatch(name, resolved)
         # Credentials inside ordinary files, or in shell and git output,
@@ -582,7 +641,7 @@ class Agent:
 
         # File memory (lever 3): never resend unchanged content.
         if name == "read_file" and out.ok and "path" in resolved:
-            content = self.files.render(resolved["_rel"], content, turn)
+            content = self.files.render(resolved["_rel"], content, turn, force_full=force_full)
             n = self._reads_this_task[resolved["_rel"]] = self._reads_this_task.get(resolved["_rel"], 0) + 1
             if self.settings.levers.loop_limits and n == self.PAGING_HINT:
                 # Measured: 15 reads of one file in 10-line windows, hunting
@@ -598,6 +657,7 @@ class Agent:
             rel = resolved["_rel"]
             for k in [k for k in self._seen_tool_calls if rel in k]:
                 self._seen_tool_calls.pop(k, None)
+                self._dup_warned.discard(k)
             self.ledger.supersede(
                 lambda e, rel=resolved["_rel"]: e.kind == "tool_result" and rel in (e.content or ""))
 
@@ -606,6 +666,7 @@ class Agent:
             # reads and searches obsolete, they show the old name.
             self.files.records.clear()
             self._seen_tool_calls.clear()
+            self._dup_warned.clear()
             self.ledger.supersede(lambda e: e.kind == "tool_result"
                                   and e.name in ("read_file", "grep", "symbols"))
 
@@ -619,7 +680,7 @@ class Agent:
                             "with the same text. Either copy `find` verbatim from the region "
                             "shown above, or call write_file with the complete corrected file.")
 
-        self._seen_tool_calls[sig] = content[:400]
+        self._seen_tool_calls[sig] = (turn, content[:400])
         self.print(self._activity(name, resolved, out.ok, content))
         record = {"tool": name, "ok": out.ok, "chars": len(content),
                   "error": content[:160] if not out.ok else None}
@@ -630,6 +691,9 @@ class Agent:
                               if k in ("_rel", "find", "replace", "old", "new")}
         trace.emit("tool_result", record)
         return self._tool_result(call, turn, content, progressed=out.ok)
+
+    def _elided_by_next_request(self, first_turn: int, turn: int) -> bool:
+        return self.settings.levers.pruning and first_turn < self.ledger.horizon(turn + 1)
 
     def _escalation(self, decision):
         if self.settings.confidential:

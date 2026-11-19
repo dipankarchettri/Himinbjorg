@@ -1,0 +1,64 @@
+{
+  "scenario": "budget_402_before_provider",
+  "virtual_key": "sk-bf-budget-real-key",
+  "synthetic_pricing": false,
+  "model": "gemini/gemini-3.5-flash-lite",
+  "limit_usd": 0.005,
+  "blocked_at_call": 9,
+  "calls": [
+    {
+      "n": 1,
+      "status": 200,
+      "used": 0.0,
+      "request_id": "f70dd3a0-5715-4a42-9938-9bde5153f003"
+    },
+    {
+      "n": 2,
+      "status": 200,
+      "used": 0.0007086999999999999,
+      "request_id": "d711f1dc-0bd3-4b88-a5fc-327a54ea38c5"
+    },
+    {
+      "n": 3,
+      "status": 200,
+      "used": 0.0014173999999999999,
+      "request_id": "b798afe4-8a4e-403e-8ede-9bce298d99ed"
+    },
+    {
+      "n": 4,
+      "status": 200,
+      "used": 0.0021260999999999997,
+      "request_id": "be15fdfb-505b-47fe-adca-241d17f518c2"
+    },
+    {
+      "n": 5,
+      "status": 200,
+      "used": 0.0028347999999999997,
+      "request_id": "75f223e6-3ceb-4b2e-9ff4-52619d7a9799"
+    },
+    {
+      "n": 6,
+      "status": 200,
+      "used": 0.0028347999999999997,
+      "request_id": "e3e733b0-aa0a-4ea1-a7dc-affff2a44fba"
+    },
+    {
+      "n": 7,
+      "status": 200,
+      "used": 0.004252199999999999,
+      "request_id": "4dd0e4f6-5849-4089-85c6-717187b81571"
+    },
+    {
+      "n": 8,
+      "status": 200,
+      "used": 0.004960899999999999,
+      "request_id": "7627cbd0-b3a9-442d-bdc5-2b6340eadeae"
+    },
+    {
+      "n": 9,
+      "status": 402,
+      "used": 0.004960899999999999,
+      "request_id": "d217e7c1-e5a3-4814-8a09-45542882ca24"
+    }
+  ]
+}

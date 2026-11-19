@@ -92,6 +92,19 @@ move, Bifrost is not pricing those model IDs and the budget will never trigger.*
 Fix with `governance.pricing_overrides` before relying on this scenario. See
 [05-RELIABILITY-BUDGET.md](05-RELIABILITY-BUDGET.md).
 
+**As run (2026-11-18).** Two refinements of the plan above, both measured
+(`docs/VERIFIED.md`):
+
+- *Real prices.* `BUDGET_PRICING=real` uses a Gemini-only key and no pricing
+  override; Bifrost prices the calls from its own catalogue.
+- *The ladder is walked by the gateway.* `bench/ladder_scenario.py` (`make
+  scenario-ladder`) gives each cloud provider its own budget on its provider
+  config (Bifrost `provider_config_id` budgets). A provider over its budget is
+  skipped by the request's fallback chain, so the agent never sees a 402; the
+  proof is the `budget_exceeded` error on the primary attempt in the gateway's
+  log. Step 2 above, the agent's own ladder, applies to requests with no
+  chain (T0 and confidential mode).
+
 ---
 
 ## Scenario 4: Code privacy
@@ -195,10 +208,11 @@ directory with a per-scenario log, the JSON artifacts, and `SUMMARY.md`.
 
 | Scenario | Script | Make target | Status |
 | --- | --- | --- | --- |
-| 0 unit tests | `bench/test_*.py` | `make test` | 107 passing in the pack (197 today) |
+| 0 unit tests | `bench/test_*.py` | `make test` | 107 passing in the pack (217 today) |
 | 1 token efficiency | `bench/benchmark.py` | `make bench` | 57/70 vs 31/70 passed, 84% fewer tokens per completed task (pooled, table below) |
 | 2 failover | `bench/failover_scenario.py` | `make scenario-failover` | PASS |
-| 3 budget | `bench/budget_scenario.py` | `make scenario-budget` | PASS (synthetic pricing, disclosed) |
+| 3 budget | `bench/budget_scenario.py` | `make scenario-budget` | PASS (synthetic pricing, disclosed); PASS at real Gemini prices with `BUDGET_PRICING=real` |
+| 3b ladder | `bench/ladder_scenario.py` | `make scenario-ladder` | PASS at real prices, per-provider budgets (needs Gemini, Groq and vLLM keys) |
 | 4 privacy | `bench/privacy_scenario.py` | `make scenario-privacy` | PASS, 6 structural checks |
 | 5 approval | `bench/approval_scenario.py` | `make scenario-approval` | PASS (non-interactive half) |
 
@@ -282,4 +296,30 @@ No per-lever ranking is claimed: two ablations (one lever off at a time)
 could not separate individual levers from sampling noise at 3 repeats, so
 the levers are claimed jointly. Cloud runs (Gemini, Claude) are in
 `docs/VERIFIED.md`.
+
+## Scenario 1 on outside tasks: QuixBugs
+
+Our own seven tasks invite the objection that the levers were tuned on them.
+QuixBugs (Lin et al., 2017, MIT) was not written for this project: 28 of its
+Python programs, each with a one-line bug and the original JSON test cases,
+vendored by `bench/quixbugs_build.py` into `bench/fixtures/quixbugs/`. Grading
+restores the original tests and conftest, so weakening a test does not pass.
+Each fixture's conftest fails a test case after 2 s, because some buggy
+programs loop forever.
+
+`python bench/benchmark.py --tasks quixbugs --repeats 3`, every tier on Gemma
+31B on the local vLLM, temperature 0.7. Evidence:
+`evidence/scenario1-benchmark-20261119-012654.json`.
+
+```
+                         passed      tokens per completed task
+naive                    82/84            20,078
+optimized                84/84            15,339      24% fewer
+```
+
+Every tier is one model, so routing saves nothing in this run; the saving is
+the other levers on short, single-file sessions. Optimized used more tokens on
+7 of the 28 programs (lis 77% more). Two earlier runs on this set found agent
+faults that the traces pinned down, fixed before this run; both are kept as
+evidence and described in `docs/VERIFIED.md`.
 

@@ -392,3 +392,26 @@ def test_symlink_loop_is_refused_or_contained(tmp_path):
 @pytest.mark.parametrize("name", [".ENV", ".Env.Local", "ID_RSA", "Credentials.JSON"])
 def test_secret_shield_ignores_case(name):
     assert policy.is_secret_path(name)
+
+
+@pytest.mark.parametrize("command", [
+    ["python3", "-c", "from bitcount import bitcount; print(bitcount(127))"],
+    "python -c 'import sys; print(sys.version)'",
+    ["node", "-e", "console.log(1 > 0)"],
+])
+def test_inline_code_may_use_its_own_semicolons(command):
+    # Measured 2026-11-18: refusing these blocked Gemma on three QuixBugs
+    # tasks. The code argument is Python or JavaScript, not shell.
+    assert _shell(command)["command"][0] in ("python", "python3", "node")
+
+
+@pytest.mark.parametrize("command", [
+    ["python3", "-c", "print(1)", ";", "rm", "x"],
+    ["python3", "-c", "print(1)", "|", "sh"],
+    ["python3", "run.py", "a;b"],
+    ["python3", "-B", "-c", "import os; os.remove('x')"],
+    "python -c 'print(1)' > /tmp/out",
+])
+def test_only_the_inline_code_argument_is_exempt(command):
+    with pytest.raises(InvalidArgs):
+        _shell(command)

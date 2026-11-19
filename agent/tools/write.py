@@ -102,6 +102,27 @@ def _strip_line_numbers(block: str) -> str:
     return block
 
 
+def _numbered_from(block: str) -> int | None:
+    """The line number on the first line of a block _strip_line_numbers
+    would strip, else None."""
+    lines = [ln for ln in block.splitlines() if ln.strip()]
+    if lines and all(_LINE_NO.match(ln) for ln in lines):
+        return int(lines[0].split()[0])
+    return None
+
+
+def _occurrence_at(text: str, find: str, line_no: int) -> int | None:
+    """Offset of the occurrence of `find` whose first non-blank line is
+    line `line_no` of the file, if exactly one is."""
+    lead = len(find) - len(find.lstrip("\n"))
+    hits, start = [], text.find(find)
+    while start != -1:
+        if text.count("\n", 0, start + lead) + 1 == line_no:
+            hits.append(start)
+        start = text.find(find, start + 1)
+    return hits[0] if len(hits) == 1 else None
+
+
 def _normalise_block(replace: str) -> list[str]:
     """Dedent a replacement whose first line was written without indentation.
 
@@ -268,6 +289,7 @@ def apply_patch(path: str, find: str, replace: str, repo_root: Path,
     _commit_ = partial(_commit, dry_run=dry_run)
     # Prefer the arguments exactly as sent; fall back to the decoded pair
     # only when the raw find does not occur (see _unescape_if_literal).
+    anchor = _numbered_from(find)
     raw_find, raw_replace = _strip_line_numbers(find), _strip_line_numbers(replace)
     dec_find = _strip_line_numbers(_unescape_if_literal(find))
     dec_replace = _strip_line_numbers(_unescape_if_literal(replace))
@@ -287,17 +309,24 @@ def apply_patch(path: str, find: str, replace: str, repo_root: Path,
     if count > 1 and replace_all:
         return _commit_(p, rel, text.replace(find, replace), f"{count} replacements",
                        n=count)
-    if count == 1:
-        idx = text.index(find)
+    # Measured 2026-11-18: Gemma 31B copied `   10      return []` from a
+    # read_file result five times running; the stripped text occurs twice
+    # in get_factors.py, so every attempt was refused as ambiguous. The
+    # line number it copied says which one it means.
+    at = _occurrence_at(text, find, anchor) if count > 1 and anchor else None
+    if count == 1 or at is not None:
+        idx = text.index(find) if at is None else at
         line_start = text.rfind("\n", 0, idx) + 1
         lead = text[line_start:idx]
         if lead and not lead.strip() and "\n" in replace:
             # `find` starts mid-line after indentation. Widen it to the whole
             # line so a multi-line replacement can be indented consistently.
-            find = lead + find
+            find, idx = lead + find, line_start
         fixed = _match_indent(find, replace)
         how = "exact match" if fixed == replace else "exact match, indentation aligned"
-        return _commit_(p, rel, text.replace(find, fixed, 1), how)
+        if at is not None:
+            how += f", line {anchor} as numbered"
+        return _commit_(p, rel, text[:idx] + fixed + text[idx + len(find):], how)
     if count > 1:
         return (f"ERROR: the text appears {count} times in {rel}. Nothing was written. "
                 "Include more surrounding context to make it unique, or pass "

@@ -1,0 +1,130 @@
+{
+  "scenario": "degradation_ladder_real_budgets",
+  "task": "shop_bulk_bug",
+  "tiers": {
+    "T2": "gemini/gemini-3.5-flash-lite",
+    "T1": "groq/openai/gpt-oss-120b",
+    "T0": "vllm/gemma-4-31b-it-qat-w4a16"
+  },
+  "budgets_before": {
+    "gemini": {
+      "max_limit": 0.0008,
+      "current_usage": 0
+    },
+    "groq": {
+      "max_limit": 0.0006,
+      "current_usage": 0
+    }
+  },
+  "budgets_after": {
+    "gemini": {
+      "max_limit": 0.0008,
+      "current_usage": 0.0008991
+    },
+    "groq": {
+      "max_limit": 0.0006,
+      "current_usage": 0.00025905
+    }
+  },
+  "steps": {
+    "T2->T1": true,
+    "T1->T0": false
+  },
+  "agent_said_budget": {
+    "T2->T1": false,
+    "T1->T0": false
+  },
+  "fallback_attempts": {
+    "385591b0-055e-4f78-8843-03391ac6f821": {
+      "provider": "gemini",
+      "status": "error",
+      "error_type": "budget_exceeded",
+      "message": "Budget exceeded: vk_model_config * on gemini budget exceeded: 0.0009 >= 0.0008 dollars"
+    },
+    "58da40e5-f96c-4fe3-8ce1-8ae2a6b1b77f": {
+      "provider": "groq",
+      "status": "error",
+      "error_type": null,
+      "message": "Parsing failed. The model generated output that could not be parsed. Please adjust your prompt. See 'failed_generation' for more details."
+    }
+  },
+  "every_rung_served": true,
+  "calls": [
+    {
+      "model": "gemini/gemini-3.5-flash-lite",
+      "served": "gemini/gemini-3.5-flash-lite",
+      "fallback": false,
+      "primary": null,
+      "request_id": "8f6523e6-778a-4a59-8a53-b7ec32d61682",
+      "tokens": 1100
+    },
+    {
+      "model": "gemini/gemini-3.5-flash-lite",
+      "served": "gemini/gemini-3.5-flash-lite",
+      "fallback": false,
+      "primary": null,
+      "request_id": "3a81c134-8312-4231-802f-351a2dca681e",
+      "tokens": 1633
+    },
+    {
+      "model": "gemini/gemini-3.5-flash-lite",
+      "served": "groq/openai/gpt-oss-120b",
+      "fallback": true,
+      "primary": "gemini",
+      "request_id": "385591b0-055e-4f78-8843-03391ac6f821",
+      "tokens": 1580
+    },
+    {
+      "model": "groq/openai/gpt-oss-120b",
+      "served": "vllm/gemma-4-31b-it-qat-w4a16",
+      "fallback": true,
+      "primary": "groq",
+      "request_id": "58da40e5-f96c-4fe3-8ce1-8ae2a6b1b77f",
+      "tokens": 2352
+    },
+    {
+      "model": "vllm/gemma-4-31b-it-qat-w4a16",
+      "served": "vllm/gemma-4-31b-it-qat-w4a16",
+      "fallback": false,
+      "primary": null,
+      "request_id": "34c4c061-2d91-43c1-90b9-d479eeaed9d3",
+      "tokens": 2682
+    },
+    {
+      "model": "vllm/gemma-4-31b-it-qat-w4a16",
+      "served": "vllm/gemma-4-31b-it-qat-w4a16",
+      "fallback": false,
+      "primary": null,
+      "request_id": "9ae4e317-4de3-48bd-ace0-46f2fb45b584",
+      "tokens": 2173
+    },
+    {
+      "model": "vllm/gemma-4-31b-it-qat-w4a16",
+      "served": "vllm/gemma-4-31b-it-qat-w4a16",
+      "fallback": false,
+      "primary": null,
+      "request_id": "ea68f9dd-29b3-4ad0-a8f8-3f76b5ed978b",
+      "tokens": 2001
+    }
+  ],
+  "served": {
+    "gemini/gemini-3.5-flash-lite": 2,
+    "groq/openai/gpt-oss-120b": 1,
+    "vllm/gemma-4-31b-it-qat-w4a16": 4
+  },
+  "answer": "The bug was in `shop/discounts.py`, where the bulk discount was only applied if the quantity was strictly greater than `BULK_THRESHOLD` (10). According to the configuration comments and the failing test, the discount should apply to orders of *at least* 10 units. I updated the comparison operator from `>` to `>=`.\n\nFixed `shop/discounts.py`:\n```python\n-    if quantity > config.BULK_THRESHOLD:\n+    if quantity >= config.BULK_THRESHOLD:\n```",
+  "task_passed": true,
+  "wall_seconds": 11.8,
+  "gateway_cost_usd": 0.000899,
+  "agent_output": [
+    "  . run_command pytest  [ok]",
+    "  . grep shop  [ok]",
+    "\n  Provider changed: gemini/gemini-3.5-flash-lite unavailable, now served by groq/openai/gpt-oss-120b. Staying on it for 60s, then retrying the primary.",
+    "  . read_file shop/discounts.py  [ok]",
+    "\n  Provider changed: groq/openai/gpt-oss-120b unavailable, now served by vllm/gemma-4-31b-it-qat-w4a16. Staying on it for 60s, then retrying the primary.",
+    "  . read_file shop/config.py  [ok]",
+    "  . apply_patch shop/discounts.py  [ok] patched shop/discounts.py (1 replacement, exact match)",
+    "  . run_command pytest  [ok]"
+  ],
+  "result": "FAIL"
+}

@@ -63,8 +63,9 @@ From the committed evidence pack, all 7 stages PASS:
 
 | Scenario | Result |
 | --- | --- |
-| 0 unit tests | 107 passing in the pack (197 today): security, edit tools, agent loop, task checkers |
+| 0 unit tests | 107 passing in the pack (217 today): security, edit tools, agent loop, task checkers |
 | 1 token efficiency (7 tasks x 10 runs, T=0.7) | 57/70 passed vs 31/70 naive; 13,913 vs 88,196 tokens per completed task (84% fewer). On the 21-file repository: 20/30 vs 3/30 |
+| 1 outside tasks: QuixBugs, 28 programs x 3 runs (Gemma 31B, local vLLM) | 84/84 passed vs 82/84 naive; 15,339 vs 20,078 tokens per completed task (24% fewer). Every tier is the same model here, so routing contributes nothing; optimized used more tokens on 7 of the 28 |
 | 1b identical re-run | 4,402 -> 0 provider tokens, every call served from the semantic cache |
 | 2 failover | PASS: broken OpenAI -> Anthropic -> local, with attribution |
 | 3 budget | PASS: usage reset to $0, 6 calls served, then 402 before the provider |
@@ -78,9 +79,11 @@ On cloud models (`docs/VERIFIED.md` has the full tables and conditions):
 | Gemini, 7 tasks x 3 runs per arm (Flash-Lite cheap, 3.5 Flash capable, free tier) | 18/21 vs 16/21 passed; 67% fewer tokens and 76% lower gateway-priced cost per completed task than everything on 3.5 Flash |
 | Claude Haiku via OpenRouter, prompt caching | 59-81% of Claude prompt tokens read from cache; input cost 31-57% of uncached. A stable prefix (`AGENT_PRUNE_STEP=4`, now the default) cut the remainder by about a quarter |
 | Failover with real provider errors | Gemini Pro 429 -> Groq gpt-oss-120b, cross-provider, attributed |
+| Budget at real prices (Gemini 3.5 Flash-Lite, priced by Bifrost) | PASS: $0.005 budget, 8 calls served, 402 on call 9; overshoots by at most one call (14%) |
+| T2 -> T1 -> T0 ladder under real budgets (Gemini $0.0008, Groq $0.0006, local Gemma free) | PASS in 2 of 3 runs: the gateway's log shows each cloud provider skipped for `budget_exceeded`, and all three served calls. The third failed the check when Groq rejected gpt-oss-120b's malformed output while still under budget |
 
-Disclosed caveats: the budget scenario uses synthetic pricing for local
-models; one task (`shop_freeship`) is solved by neither arm; and the first
+Disclosed caveats: scenario 3 in the pack uses synthetic pricing for local
+models (the real-price runs are in the table above); one task (`shop_freeship`) is solved by neither arm; and the first
 run of the 21-file tasks went the other way (optimized 1/15, naive 8/15).
 What changed after that run, and why, is in
 [`docs/VERIFIED.md`](docs/VERIFIED.md).
@@ -217,6 +220,7 @@ read from the target repository, which is treated as untrusted input.
 | `BIFROST_SETUP_TOKEN` | Unlocks the gateway's log API for per-session cost |
 | `BIFROST_VK_DEMO`, `BIFROST_VK_CONFIDENTIAL` | Per-user virtual keys (budgets live on these) |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY` | Optional cloud providers, read by the gateway container. Gemini, OpenRouter and Groq are verified end to end (`docs/VERIFIED.md`) |
+| `VLLM_API_KEY` | Optional local vLLM server (provider `vllm`, e.g. `vllm/gemma-4-31b-it-qat-w4a16`). Allowed on the demo key only: confidential mode stays on Ollama, since a provider name does not prove the server is local |
 | `TAVILY_API_KEY` | Optional. Enables the `web_search` tool (Tavily) for library docs and error messages. Without it the tool is not offered; in confidential mode it is never built |
 | `AGENT_MODEL_LOCAL_CODE` | Local coding model, default `ollama/qwen2.5:32b-instruct` |
 | `AGENT_MODEL_CHEAP`, `AGENT_MODEL_CAPABLE` | Optional cloud tiers, e.g. `gemini/gemini-3.1-flash-lite` and `gemini/gemini-3.5-flash`, or `openrouter/anthropic/claude-haiku-5.5` and `openrouter/anthropic/claude-sonnet-5.5` |
@@ -323,8 +327,9 @@ evidence/         the committed proof pack
 - **Cloud runs are small.** Gemini ran 3 runs per cell on a free tier
   (30 of 336 calls were rate-limited and absorbed by failover); the Claude
   run was cut short by the OpenRouter account running out of credit. The
-  budget scenario still uses synthetic pricing, and the full
-  T2 -> T1 -> T0 degradation ladder under a budget has not been run.
+  budget and ladder runs at real prices are single runs of one short
+  task, and a budget can be overshot by one call, because Bifrost checks
+  usage before a call, not its cost.
 - **Capability ceiling.** `shop_freeship` is solved by neither arm; it was
   left untuned on purpose rather than fitted to the benchmark.
 - **The extension needs the agent installed.** It is a front end for

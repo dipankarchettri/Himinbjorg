@@ -52,9 +52,13 @@ class FileMemory:
             return "skip"
         return "diff"
 
-    def render(self, path: str, content: str, turn: int) -> str:
-        """Return what should actually be put in front of the model."""
-        mode = self.decide(path, content)
+    def render(self, path: str, content: str, turn: int, force_full: bool = False) -> str:
+        """Return what should actually be put in front of the model.
+
+        force_full: the model already got the "unchanged" stub for this
+        call and asked again, so it gets the file.
+        """
+        mode = "full" if force_full else self.decide(path, content)
         rec = self.records.get(path)
         if mode != "full" and rec is not None and self._pruned(rec.first_sent_turn, turn):
             # The earlier copy has been pruned from what the model sees.

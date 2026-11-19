@@ -1,0 +1,121 @@
+{
+  "scenario": "degradation_ladder_real_budgets",
+  "task": "shop_bulk_bug",
+  "tiers": {
+    "T2": "gemini/gemini-3.5-flash-lite",
+    "T1": "groq/openai/gpt-oss-120b",
+    "T0": "vllm/gemma-4-31b-it-qat-w4a16"
+  },
+  "budgets_before": {
+    "gemini": {
+      "max_limit": 0.0008,
+      "current_usage": 0
+    },
+    "groq": {
+      "max_limit": 0.0006,
+      "current_usage": 0
+    }
+  },
+  "budgets_after": {
+    "gemini": {
+      "max_limit": 0.0008,
+      "current_usage": 0.0008866
+    },
+    "groq": {
+      "max_limit": 0.0006,
+      "current_usage": 0.0006020999999999999
+    }
+  },
+  "steps": {
+    "T2->T1": true,
+    "T1->T0": true
+  },
+  "agent_said_budget": {
+    "T2->T1": false,
+    "T1->T0": false
+  },
+  "fallback_attempts": {
+    "09c2e2e8-82fa-40f8-9f44-5f80f1ca0aa9": {
+      "provider": "gemini",
+      "status": "error",
+      "error_type": "budget_exceeded",
+      "message": "Budget exceeded: vk_model_config * on gemini budget exceeded: 0.0009 >= 0.0008 dollars"
+    },
+    "6776a20b-89eb-44c6-b606-5ad47f73887a": {
+      "provider": "groq",
+      "status": "error",
+      "error_type": "budget_exceeded",
+      "message": "Budget exceeded: vk_model_config * on groq budget exceeded: 0.0006 >= 0.0006 dollars"
+    }
+  },
+  "every_rung_served": true,
+  "calls": [
+    {
+      "model": "gemini/gemini-3.5-flash-lite",
+      "served": "gemini/gemini-3.5-flash-lite",
+      "fallback": false,
+      "primary": null,
+      "request_id": "ab07bf29-11fa-4ed4-be8c-78d70393861e",
+      "tokens": 1100
+    },
+    {
+      "model": "gemini/gemini-3.5-flash-lite",
+      "served": "gemini/gemini-3.5-flash-lite",
+      "fallback": false,
+      "primary": null,
+      "request_id": "483ebac6-316f-4187-8d3e-62c3315a9585",
+      "tokens": 1628
+    },
+    {
+      "model": "gemini/gemini-3.5-flash-lite",
+      "served": "groq/openai/gpt-oss-120b",
+      "fallback": true,
+      "primary": "gemini",
+      "request_id": "09c2e2e8-82fa-40f8-9f44-5f80f1ca0aa9",
+      "tokens": 1557
+    },
+    {
+      "model": "groq/openai/gpt-oss-120b",
+      "served": "groq/openai/gpt-oss-120b",
+      "fallback": false,
+      "primary": null,
+      "request_id": "632e786e-eb5d-441c-8230-8ceb6f3f67b0",
+      "tokens": 2046
+    },
+    {
+      "model": "groq/openai/gpt-oss-120b",
+      "served": "vllm/gemma-4-31b-it-qat-w4a16",
+      "fallback": true,
+      "primary": "groq",
+      "request_id": "6776a20b-89eb-44c6-b606-5ad47f73887a",
+      "tokens": 1865
+    },
+    {
+      "model": "vllm/gemma-4-31b-it-qat-w4a16",
+      "served": "vllm/gemma-4-31b-it-qat-w4a16",
+      "fallback": false,
+      "primary": null,
+      "request_id": "994795f9-1ef0-4852-9be5-b4e713829083",
+      "tokens": 2151
+    }
+  ],
+  "served": {
+    "gemini/gemini-3.5-flash-lite": 2,
+    "groq/openai/gpt-oss-120b": 2,
+    "vllm/gemma-4-31b-it-qat-w4a16": 2
+  },
+  "answer": "The bug was located in `shop/discounts.py`, where the bulk discount was only applied if the quantity was strictly greater than `config.BULK_THRESHOLD`. I changed the comparison operator from `>` to `>=` to ensure that customers ordering exactly the threshold amount also receive the discount.\n\nVerified the fix by running `pytest`, and `tests/test_orders.py::test_bulk_discount_at_threshold` now passes.",
+  "task_passed": true,
+  "wall_seconds": 8.3,
+  "gateway_cost_usd": 0.001233,
+  "agent_output": [
+    "  . run_command pytest  [ok]",
+    "  . grep BULK  [ok]",
+    "\n  Provider changed: gemini/gemini-3.5-flash-lite unavailable, now served by groq/openai/gpt-oss-120b. Staying on it for 60s, then retrying the primary.",
+    "  . read_file shop/discounts.py  [ok]",
+    "  . apply_patch shop/discounts.py  [ok] patched shop/discounts.py (1 replacement, exact match)",
+    "\n  Provider changed: groq/openai/gpt-oss-120b unavailable, now served by vllm/gemma-4-31b-it-qat-w4a16. Staying on it for 60s, then retrying the primary.",
+    "  . run_command pytest  [ok]"
+  ],
+  "result": "PASS"
+}

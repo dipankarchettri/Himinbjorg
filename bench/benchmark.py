@@ -31,7 +31,7 @@ from agent.llm import LLMClient                             # noqa: E402
 from agent.loop import Agent                                # noqa: E402
 from agent.security.privacy import PrivacyMode              # noqa: E402
 from agent.tools.registry import Registry                   # noqa: E402
-from bench.tasks import TASKS, TASKS_BY_ID, WORK_ROOT, materialise  # noqa: E402
+from bench.tasks import QUIXBUGS_TASKS, TASKS, TASKS_BY_ID, WORK_ROOT, materialise  # noqa: E402
 
 WORK = WORK_ROOT
 EVIDENCE = ROOT / "evidence"
@@ -255,8 +255,14 @@ def main() -> int:
     # so a cloud run needs no .env edit:
     #   BENCH_MODEL_CHEAP=gemini/gemini-3.1-flash-lite python bench/benchmark.py
     env = {**load_dotenv(ROOT / ".env"),
-           **{k: v for k, v in os.environ.items() if k.startswith(("BENCH_", "AGENT_"))}}
-    tasks = TASKS if args.tasks == "all" else [TASKS_BY_ID[t] for t in args.tasks.split(",")]
+           **{k: v for k, v in os.environ.items()
+              if k.startswith(("BENCH_", "AGENT_", "BIFROST_VK_"))}}
+    if args.tasks == "all":
+        tasks = TASKS
+    elif args.tasks == "quixbugs":
+        tasks = QUIXBUGS_TASKS
+    else:
+        tasks = [TASKS_BY_ID[t] for t in args.tasks.split(",")]
     arms = args.arms.split(",")
     stamp = time.strftime("%Y%m%d-%H%M%S")
     WORK.mkdir(parents=True, exist_ok=True)

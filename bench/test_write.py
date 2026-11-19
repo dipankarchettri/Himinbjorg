@@ -59,6 +59,29 @@ def test_line_numbers_copied_from_read_file(tmp_path):
     assert "return a / b if b else None" in text
 
 
+GET_FACTORS = ("def get_factors(n):\n    if n == 1:\n        return []\n\n"
+               "    for i in range(2, int(n ** 0.5) + 1):\n        if n % i == 0:\n"
+               "            return [i] + get_factors(n // i)\n\n    return []\n")
+
+
+@pytest.mark.parametrize("numbered", ["    9      return []", "   9      return []"])
+def test_copied_line_number_picks_between_duplicates(tmp_path, numbered):
+    # Trace 2026-11-18, QuixBugs get_factors: `return []` is on lines 3 and
+    # 9; the model sent the numbered line five times and was refused as
+    # ambiguous every time.
+    out, text = patch(tmp_path, numbered, numbered.replace("[]", "[n]"), body=GET_FACTORS)
+    assert out.startswith("patched"), out
+    assert text.splitlines()[2] == "        return []"
+    assert text.splitlines()[8] == "    return [n]"
+
+
+def test_a_line_number_that_matches_no_duplicate_stays_ambiguous(tmp_path):
+    out, text = patch(tmp_path, "    5      return []", "    5      return [n]",
+                      body=GET_FACTORS)
+    assert out.startswith("ERROR") and "2 times" in out
+    assert text == GET_FACTORS
+
+
 def test_ambiguous_find_suggests_replace_all(tmp_path):
     body = "def f():\n    return multiply(1, 2) + multiply(3, 4)\n"
     out, text = patch(tmp_path, "multiply(", "times(", body=body)

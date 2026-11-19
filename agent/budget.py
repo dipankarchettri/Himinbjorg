@@ -10,7 +10,7 @@ import json
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from . import trace
 from .router import Tier
@@ -25,6 +25,11 @@ class Quota:
     reset_duration: str = ""
     last_reset: str = ""
     available: bool = False
+    # Budgets on single providers inside the key: provider -> (used, limit).
+    # A provider over its budget is dropped from routing and the gateway's
+    # fallback chain moves on, so no 402 reaches the agent; this is how the
+    # agent can still say why the provider changed.
+    providers: dict = field(default_factory=dict)
 
     @property
     def headroom(self) -> float:
@@ -54,6 +59,11 @@ def poll(settings, virtual_key: str, ttl_seconds: int = 20) -> Quota:
         with urllib.request.urlopen(req, timeout=8) as resp:
             data = json.loads(resp.read().decode())
         budgets = data.get("budgets") or []
+        providers = {
+            str(pc.get("provider")): (float(b.get("current_usage") or 0),
+                                      float(b.get("max_limit") or 0))
+            for pc in data.get("provider_configs") or []
+            for b in (pc.get("budgets") or [])[:1]}
         if budgets:
             b = budgets[0]
             quota = Quota(
@@ -62,16 +72,23 @@ def poll(settings, virtual_key: str, ttl_seconds: int = 20) -> Quota:
                 reset_duration=str(b.get("reset_duration") or ""),
                 last_reset=str(b.get("last_reset") or ""),
                 available=True,
+                providers=providers,
             )
         else:
             # No budget attached is a valid configuration (the confidential
             # key has none, because local inference has no marginal cost).
-            quota = Quota(available=True, max_limit=0.0)
+            quota = Quota(available=True, max_limit=0.0, providers=providers)
     except (urllib.error.HTTPError, urllib.error.URLError, ValueError, OSError):
         quota = Quota(available=False)
 
     _cache = (now, quota)
     return quota
+
+
+def provider_exhausted(quota: Quota, provider: str | None) -> tuple[float, float] | None:
+    """(used, limit) when this provider's own budget is used up, else None."""
+    used, limit = quota.providers.get(provider or "", (0.0, 0.0))
+    return (used, limit) if limit > 0 and used >= limit else None
 
 
 def should_preempt(quota: Quota, tier: Tier, estimate: float = 0.01) -> bool:

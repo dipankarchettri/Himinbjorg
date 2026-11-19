@@ -3,7 +3,7 @@ PY      := $(VENV)/bin/python
 COMPOSE := docker compose --env-file .env -f infra/docker-compose.yml
 
 .PHONY: venv up down logs status agent test proof bench pool gate-check extension extension-test \
-        scenario-failover scenario-budget scenario-privacy scenario-approval clean
+        scenario-failover scenario-budget scenario-ladder scenario-privacy scenario-approval clean
 
 venv:
 	python3 -m venv $(VENV) && $(VENV)/bin/pip install -q -r requirements.txt && $(VENV)/bin/pip install -q -e .
@@ -51,6 +51,10 @@ scenario-failover:
 
 scenario-budget:
 	$(PY) bench/budget_scenario.py
+
+# Needs GEMINI_API_KEY, GROQ_API_KEY and a vLLM server (VLLM_API_KEY).
+scenario-ladder:
+	$(PY) bench/ladder_scenario.py
 
 scenario-privacy:
 	$(PY) bench/privacy_scenario.py

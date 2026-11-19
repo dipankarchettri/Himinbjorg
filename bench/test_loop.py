@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agent import budget as budget_mod                          # noqa: E402
 from agent import llm as llm_mod                                # noqa: E402
+from agent import loop as loop_mod                              # noqa: E402
 from agent import telemetry                                     # noqa: E402
 from agent.config import LeverFlags, Settings                   # noqa: E402
 from agent.loop import Agent                                    # noqa: E402
@@ -346,6 +347,45 @@ def test_a_gateway_error_stops_the_task_without_crashing(repo):
     assert agent.run("now explain it") == "done"
 
 
+class RateLimitClient(FakeClient):
+    """The first `limited` calls get HTTP 429, then scripted turns."""
+
+    def __init__(self, turns, limited):
+        super().__init__(turns)
+        self.limited = limited
+
+    def call(self, spec):
+        if self.limited:
+            self.limited -= 1
+            self.specs.append(spec)
+            raise llm_mod.RateLimited("token limit exceeded (2001516/2000000, resets every 1h)")
+        return super().call(spec)
+
+
+def _rate_limited_agent(repo, monkeypatch, limited):
+    waits = []
+    monkeypatch.setattr(loop_mod.time, "sleep", waits.append)
+    base, _ = make_agent(repo, [])
+    client = RateLimitClient([([], "done")], limited)
+    return Agent(base.settings, base.privacy, client, base.registry,
+                 printer=lambda *a, **k: None), client, waits
+
+
+def test_a_persistent_rate_limit_stops_instead_of_burning_every_turn(repo, monkeypatch):
+    # Measured: a key's hourly token limit made every turn fail in 0.4 s
+    # and the task used all 18 turns. Now: one wait, one retry, stop.
+    agent, client, waits = _rate_limited_agent(repo, monkeypatch, limited=99)
+    assert agent.run("fix calc.py") == "stopped: rate limited"
+    assert len(client.specs) == 2
+    assert waits == [Agent.RATE_LIMIT_WAIT]
+
+
+def test_a_single_rate_limit_is_retried_after_a_wait(repo, monkeypatch):
+    agent, client, waits = _rate_limited_agent(repo, monkeypatch, limited=1)
+    assert agent.run("explain calc.py") == "done"
+    assert waits == [Agent.RATE_LIMIT_WAIT]
+
+
 def test_provider_out_of_credit_downgrades_with_an_honest_message(repo):
     printed = []
     base, _ = make_agent(repo, [])
@@ -531,3 +571,77 @@ def test_injected_file_cannot_cause_a_write_without_the_operator(repo, monkeypat
     assert len(asked) == 2
     assert all("IMPORTANT SYSTEM NOTICE" not in p for p in asked)
     assert result.startswith("stopped: you declined")
+
+
+def test_a_repeated_read_gets_the_stub_once_then_the_file(repo):
+    # Measured on QuixBugs with Gemma 31B: three stubs in a row for a file
+    # the model kept asking for stopped the run for "no progress".
+    read = lambda: ([call("read_file", path="calc.py")], "")   # noqa: E731
+    agent, _ = make_agent(repo, [read(), read(), read(), read(), ([], "done")])
+    assert agent.run("explain calc.py") == "done"
+    stub = ["identical call already made" in r for r in tool_results(agent)]
+    assert stub == [False, True, False, True]       # asked again: the real file
+
+
+def test_no_stub_once_the_earlier_result_has_been_pruned(repo):
+    # The stub says the result is earlier in the conversation. Once pruning
+    # has elided it, that is false, so the call just runs.
+    read = lambda: ([call("read_file", path="calc.py")], "")   # noqa: E731
+    other = [([call("grep", pattern=f"x{i}")], "") for i in range(6)]
+    agent, _ = make_agent(repo, [read(), *other, read(), ([], "done")])
+    assert agent.ledger.pruning_enabled
+    assert agent.run("explain calc.py") == "done"
+    assert not any("identical call already made" in r for r in tool_results(agent))
+
+
+class FallbackClient(FakeClient):
+    """Every call served by the local model as a fallback from Gemini."""
+
+    def call(self, spec):
+        r = super().call(spec)
+        r.routing = telemetry.RoutingInfo("vllm", "gemma", is_fallback=True,
+                                          primary_provider="gemini",
+                                          primary_model="gemini-3.5-flash-lite")
+        return r
+
+
+def _fallback_messages(repo, monkeypatch, quota):
+    printed = []
+    monkeypatch.setattr(budget_mod, "poll", lambda *a, **k: quota)
+    base, _ = make_agent(repo, [])
+    agent = Agent(base.settings, base.privacy, FallbackClient([([], "done")]), base.registry,
+                  printer=lambda *a, **k: printed.append(" ".join(map(str, a))))
+    agent.run("explain calc.py")
+    return [p for p in printed if "Provider changed" in p]
+
+
+def test_a_fallback_caused_by_a_provider_budget_says_so(repo, monkeypatch):
+    # Measured: Bifrost skips a provider over its own budget and falls
+    # back, so no 402 reaches the agent. It used to say "unavailable".
+    quota = budget_mod.Quota(available=True, providers={"gemini": (0.000914, 0.0008)})
+    [msg] = _fallback_messages(repo, monkeypatch, quota)
+    assert "gemini/gemini-3.5-flash-lite budget used up ($0.0009 of $0.0008)" in msg
+    assert "vllm/gemma" in msg
+
+
+def test_a_fallback_with_budget_left_is_still_unavailable(repo, monkeypatch):
+    quota = budget_mod.Quota(available=True, providers={"gemini": (0.0001, 0.0008)})
+    [msg] = _fallback_messages(repo, monkeypatch, quota)
+    assert "unavailable" in msg and "budget" not in msg
+
+
+def test_a_lagging_provider_budget_is_confirmed_on_a_later_call(repo, monkeypatch):
+    # The gateway refuses on its own usage count; the quota endpoint catches
+    # up seconds later. Announce "unavailable", then confirm, never wait.
+    under = budget_mod.Quota(available=True, providers={"gemini": (0.0001, 0.0008)})
+    over = budget_mod.Quota(available=True, providers={"gemini": (0.0009, 0.0008)})
+    reads = iter([under, under, over])
+    printed = []
+    monkeypatch.setattr(budget_mod, "poll", lambda *a, **k: next(reads, over))
+    base, _ = make_agent(repo, [])
+    client = FallbackClient([([call("read_file", path="calc.py")], ""), ([], "done")])
+    agent = Agent(base.settings, base.privacy, client, base.registry,
+                  printer=lambda *a, **k: printed.append(" ".join(map(str, a))))
+    agent.run("explain calc.py")
+    assert any("Provider changed" in p and "unavailable" in p for p in printed)
+    assert any("that fallback was its budget ($0.0009 of $0.0008 used)" in p for p in printed)

@@ -9,6 +9,13 @@ SYNTHETIC pricing override (governance.pricing_overrides, scoped to this
 key only) assigns a fake price to the local models so the limit is
 reachable. The price is fake; the 402, the pre-provider block and the
 degradation ladder are the real mechanism.
+
+BUDGET_PRICING=real runs the same scenario on a cloud model at the
+provider's real list price, with no override: a separate key
+(sk-bf-budget-real-key, $0.005 limit, Gemini Flash-Lite only) and a
+~2,300-token prompt per call, so about seven calls reach the limit. On a
+free-tier key the dollars are the gateway's list-price accounting, not a
+bill; the pricing is real, not synthetic.
 """
 from __future__ import annotations
 
@@ -23,9 +30,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 BASE = "http://localhost:8099"
-VK = "sk-bf-budget-demo-key"
-VK_ID = "vk-user-budget-demo"
-MODEL = os.environ.get("BUDGET_MODEL", "ollama/qwen2.5:7b-instruct")
+REAL = os.environ.get("BUDGET_PRICING", "synthetic") == "real"
+VK = "sk-bf-budget-real-key" if REAL else "sk-bf-budget-demo-key"
+VK_ID = "vk-user-budget-real" if REAL else "vk-user-budget-demo"
+BUDGET_ID = "bud-budget-real" if REAL else "bud-budget-demo"
+LIMIT = 0.005 if REAL else 0.05
+MODEL = os.environ.get("BUDGET_MODEL", "gemini/gemini-3.5-flash-lite" if REAL
+                       else "ollama/qwen2.5:7b-instruct")
+# Real prices are tiny per token, so each call carries real source text
+# (this repository's agent loop) to make the limit reachable in a few calls.
+PADDING = ((Path(__file__).resolve().parent.parent / "agent" / "loop.py").read_text()[:8000]
+           + "\n\n") if REAL else ""
 # BUDGET_MODEL must be allowlisted for the budget virtual key in
 # infra/data/config.json (e.g. BUDGET_MODEL=ollama/qwen2.5:3b for a smoke test).
 SETUP_TOKEN = "bifrost-local-setup-token"
@@ -43,7 +58,7 @@ def quota() -> dict:
 def call(n: int):
     payload = {
         "model": MODEL,
-        "messages": [{"role": "user", "content": f"Say the number {n} and nothing else."}],
+        "messages": [{"role": "user", "content": f"{PADDING}Say the number {n} and nothing else."}],
         "max_tokens": 40,
     }
     req = urllib.request.Request(
@@ -82,7 +97,7 @@ def reset_usage() -> None:
     (verified 2026-11-15 against PUT /api/governance/virtual-keys/{id}).
     """
     payload = {"reset_budget_usage": True,
-               "budgets": [{"max_limit": 0.05, "reset_duration": "1M"}]}
+               "budgets": [{"max_limit": LIMIT, "reset_duration": "1M"}]}
     req = urllib.request.Request(
         f"{BASE}/api/governance/virtual-keys/{VK_ID}", data=json.dumps(payload).encode(),
         method="PUT", headers={"Content-Type": "application/json",
@@ -93,7 +108,7 @@ def reset_usage() -> None:
 
 def budget_of(q: dict) -> dict:
     for b in q.get("budgets") or []:
-        if b.get("id") == "bud-budget-demo":
+        if b.get("id") == BUDGET_ID:
             return b
     return (q.get("budgets") or [{}])[0]
 
@@ -108,8 +123,13 @@ def main() -> int:
     print(f"  key    : {VK}")
     print(f"  limit  : ${float(b.get('max_limit', 0)):.4f}")
     print(f"  used   : ${float(b.get('current_usage', 0)):.6f}")
-    print("  NOTE   : local inference is free; a SYNTHETIC pricing override")
-    print("           makes the limit reachable. The 402 path is real.")
+    print(f"  model  : {MODEL}")
+    if REAL:
+        print("  NOTE   : real list prices, no override. On a free-tier key the")
+        print("           dollars are the gateway's accounting, not a bill.")
+    else:
+        print("  NOTE   : local inference is free; a SYNTHETIC pricing override")
+        print("           makes the limit reachable. The 402 path is real.")
     print()
 
     results = []
@@ -187,7 +207,9 @@ def main() -> int:
     path.write_text(json.dumps({
         "scenario": "budget_402_before_provider",
         "virtual_key": VK,
-        "synthetic_pricing": True,
+        "synthetic_pricing": not REAL,
+        "model": MODEL,
+        "limit_usd": LIMIT,
         "blocked_at_call": blocked_at,
         "calls": results,
     }, indent=2))

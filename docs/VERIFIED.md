@@ -817,3 +817,241 @@ provider has no credit; your budget is fine", and drops a tier
 (`agent/llm.py`, `agent/loop.py`; tests with both real bodies in
 `bench/test_loop.py`). Before, an exhausted provider with no working
 fallback would have been reported as the user's budget.
+
+---
+
+## Budget at real provider prices (2026-11-18)
+
+`BUDGET_PRICING=real python bench/budget_scenario.py`. Key
+`vk-user-budget-real`, Gemini only, $0.005 limit, no pricing override:
+the gateway prices `gemini-3.5-flash-lite` from its own model catalogue.
+Each call is a 2,355-token prompt (the first 8,000 characters of
+`agent/loop.py` plus the question), so the limit is reached in a handful
+of calls instead of thousands.
+
+```
+call  1: HTTP 200  used=$0.000000  tokens=2355
+call  2: HTTP 200  used=$0.000709  tokens=2355
+...
+call  8: HTTP 200  used=$0.004961  tokens=2355
+call  9: HTTP 402  budget_exceeded: 0.0057 >= 0.0050 dollars
+provider actually invoked: NO
+```
+
+- Gateway price per call: $0.000709 (2,355 tokens), in line with the
+  $0.0007045 the log API reported for a 2,341-token call earlier the
+  same day.
+- The free tier means these dollars are the gateway's accounting, not a
+  bill. The price table is Bifrost's, which is the point: no synthetic
+  number is involved.
+- **Overshoot of at most one call, seen again.** Call 8 was served at
+  $0.004961 used and brought the total to $0.0057. The check runs before
+  the call against usage so far, not against usage plus the call's cost,
+  so the last call can cross the limit. Here that is 14% over a tiny
+  limit; on a realistic limit it is one call's cost.
+- `used` lags by one call (call 6 shows the same total as call 5): the
+  usage write is asynchronous, as recorded above.
+
+Evidence: `evidence/scenario3-budget-20261118-230106.json`.
+
+---
+
+## Degradation ladder under real budgets (2026-11-18)
+
+`python bench/ladder_scenario.py`. One key, `sk-bf-ladder-key`, three
+providers, each cloud provider with its own budget on its provider
+config (Bifrost `provider_config_id` budgets):
+
+| Tier | Model | Budget |
+| --- | --- | --- |
+| T2 | `gemini/gemini-3.5-flash-lite` | $0.0008 |
+| T1 | `groq/openai/gpt-oss-120b` | $0.0006 |
+| T0 | `vllm/gemma-4-31b-it-qat-w4a16` (local) | none |
+
+Task `shop_bulk_bug`, routing lever off so the run starts on T2:
+
+```
+served by gemini/gemini-3.5-flash-lite: 2
+served by groq/openai/gpt-oss-120b: 3
+served by vllm/gemma-4-31b-it-qat-w4a16: 2
+gemini budget: $0.000899 of $0.0008
+groq   budget: $0.000868 of $0.0006
+gateway log a33e8d63: gemini budget_exceeded ... 0.0009 >= 0.0008
+gateway log f20e50ff: groq   budget_exceeded ... 0.0009 >= 0.0006
+task   : PASS (13.9s)
+```
+
+What this shows, and what it does not:
+
+- **The gateway walks the ladder, not the agent.** A provider over its
+  own budget is skipped and the request's fallback chain
+  (T2 -> T1 -> local) continues, so no 402 reaches the agent. The agent's
+  402 handler (drop a tier, then stop) is for requests with no chain:
+  T0 and confidential mode.
+- **Proof is the gateway's log**, not the agent's wording: the primary
+  attempt of each fallback request carries `402 budget_exceeded`.
+- **The agent's live message lags.** It now reads the provider budgets
+  from the quota endpoint on every fallback and says "budget used up"
+  when it can see it. But usage reaches that endpoint seconds after the
+  gateway enforces it, so on this 14-second task both transitions were
+  announced as "unavailable". On a longer run, the next call prints
+  "that fallback was its budget ($x of $y used)". Waiting was rejected:
+  it would add seconds to every fallback.
+- **Overshoot of one call per rung**, as with the key budget: Groq ended
+  45% over a tiny limit, which is one gpt-oss-120b call.
+- Model choices were forced by the day's conditions: Gemini 3.5 Flash
+  returned 503 "high demand" for 30 s, and gpt-oss-20b called a tool that
+  does not exist (`open_file`), which Groq rejects with 400, so the chain
+  moved on for a reason other than the budget. Both are recorded in
+  `bench/ladder_scenario.py`.
+
+Evidence: `evidence/scenario3b-ladder-20261118-232320.json`.
+
+## Found by the Day 3 runs, fixed (2026-11-18)
+
+- **A rate limit burned every turn.** On a 429 the loop printed
+  "retrying once" and retried on every turn with no wait. When the demo
+  key hit its 2M tokens/hour limit mid-benchmark, each task used all 18
+  turns in 8 s and was graded a failure. Now: wait 5 s, retry once, then
+  `stopped: rate limited`. The benchmark has its own key now
+  (`sk-bf-bench-local-key`, local vLLM only, no limits), selected with
+  `BIFROST_VK_DEMO`.
+- **The duplicate-call stub was a refusal.** A repeated identical read
+  got "[identical call already made this session]" and counted as no
+  progress. Gemma 31B re-read files it could still see, got the stub
+  three times and the run stopped: 0/3 on `qb_lis` and `qb_get_factors`
+  where the naive arm passed 3/3. Now the first repeat gets the stub,
+  a second repeat gets the real result.
+- **Stale bytecode graded a correct fix as failing.** CPython checks its
+  `.pyc` cache by mtime in whole seconds plus size, so a same-length
+  one-line fix made in the same second as the previous test run reused
+  the old bytecode. Grading and the agent's own commands now run with
+  `-B` and `PYTHONDONTWRITEBYTECODE=1`. Earlier published runs could have
+  counted correct fixes as failures this way, which would understate
+  their pass rates, not inflate them.
+
+## QuixBugs run 2: what still failed, and why (2026-11-18)
+
+28 QuixBugs programs, 3 runs per arm, every tier on Gemma 31B (local
+vLLM, `sk-bf-bench-local-key`), on the code with the three fixes above.
+Evidence: `evidence/scenario1-benchmark-20261118-232419.json`.
+
+| | naive | optimized |
+|---|---|---|
+| passed | 76/84 | 71/84 |
+| tokens per completed task (all tokens / runs passed) | 24,389 | 18,400 (24.6% fewer) |
+
+Optimized lost on 5 programs. The traces show four agent faults and no
+model limit:
+
+- **`;` inside `python -c` was refused** (bitcount 0/3, sqrt 0/3,
+  subsequences 1 of 3, and 1 of 3 lis runs lost two turns). The model
+  ran `python3 -c "print(bitcount(127))"`, got a NameError, then sent
+  `python3 -c "from bitcount import bitcount; print(...)"` three times.
+  The shell check refuses `;` in any argument, so three turns in a row
+  were refused and the run stopped for no progress. The naive arm has
+  no stop, so it carried on and solved bitcount.
+- **A copied line number was ignored** (get_factors 0/3, naive 3/3).
+  The model sent `find="    10      return []"`, copied with its line
+  number from `read_file`. The number was stripped, the rest occurs on
+  lines 4 and 10, and every attempt was refused as ambiguous until 5
+  edits had failed. Earlier this was blamed on the duplicate-call stub;
+  the traces show this was the cause.
+- **Buggy programs that loop forever held every test run for 90 s**
+  (bitcount, sqrt, find_first_in_sorted). The agent saw only "command
+  timed out after 90s", never which case hung. find_first_in_sorted
+  failed on both arms, 0/3 each.
+- **The duplicate-call stub ignored pruning.** It says the result is
+  "earlier in this conversation", which is false once pruning has elided
+  it, so the model had to ask a third time.
+
+Optimized also used more tokens than naive on lis (82% more), wrap (8%)
+and max_sublist_sum (9%), from repeated reads of a file Gemma could
+still see.
+
+## Fixed after run 2 (2026-11-19)
+
+- **Inline code may use `;`.** In `python -c CODE`, `python3 -c CODE`
+  and `node -e CODE`, the code argument is exempt from the
+  shell-metacharacter check. It is Python or JavaScript, not shell, and
+  the interpreter already runs any code it is given, so refusing `;`
+  protected nothing; the approval prompt and the sandbox are what guard
+  it. Every other argument is checked as before, including
+  `python3 -c X ; rm y` and `python3 -B -c ...` (tests in
+  `bench/test_security.py`).
+- **A copied line number picks the occurrence.** When `find` carries
+  read_file line numbers and the stripped text occurs more than once,
+  `apply_patch` uses the occurrence starting on that line. If no
+  occurrence starts there, it is still refused as ambiguous. The traced
+  get_factors edit now applies on its first try.
+- **A per-case time limit in the QuixBugs fixtures.** Each fixture's
+  `conftest.py` fails a test case after 2 s with `TimeoutError: <case>
+  ran longer than 2 s (probably an infinite loop)`. The correct versions
+  run each whole suite in 0.02 s or less. The buggy bitcount, sqrt and
+  find_first_in_sorted suites now fail in 18, 12 and 4 s, naming each
+  case, instead of hitting the 90 s timeout. Grading restores this
+  conftest with the tests, so the agent cannot remove it. This changes
+  the task set for both arms equally; earlier QuixBugs numbers were
+  taken without it.
+- **The duplicate-call stub only appears while the earlier result is
+  still in the context.** After pruning has elided it, the call just
+  runs.
+- Not changed: the no-progress stop. In every run it cut short, it
+  fired after three refused commands, which are no longer refused.
+  Whether it still stops Gemma too early is measured below, not assumed.
+
+## QuixBugs run 3, on the fixed code (2026-11-19)
+
+Same conditions as run 2: 28 programs, 3 runs per arm, temperature 0.7,
+every tier on Gemma 31B (`vllm/gemma-4-31b-it-qat-w4a16`, local vLLM
+through a relay, key `sk-bf-bench-local-key`), with the per-case time
+limit. Evidence: `evidence/scenario1-benchmark-20261119-012654.json`.
+
+| | naive | optimized |
+|---|---|---|
+| passed | 82/84 | 84/84 |
+| tokens per completed task (all tokens / runs passed) | 20,078 | 15,339 (23.6% fewer) |
+| median turns per run | 7 | 7 |
+| median wall time per run | 18.7 s | 14.0 s |
+| wall time, all 84 runs | 27.9 min | 22.7 min |
+
+- Optimized passed every program. Naive failed 2 of 3
+  longest_common_subsequence runs at the 18-turn limit, which is also
+  where most of its extra tokens went (192,188 tokens per completed
+  task there, against 14,642).
+- No optimized run was stopped for no progress, so the stop was left as
+  it is.
+- **Optimized used more tokens on 7 of 28 programs**: lis 77% more,
+  next_permutation 16%, rpn_eval 13%, bitcount 7%, max_sublist_sum 6%,
+  shunting_yard 4%. On lis, Gemma re-reads `lis.py` while it can still
+  see it; each re-read is a turn. Left open for the Day 5 turn work
+  rather than tuned here.
+- **What this does not measure.** Every tier is the same model, so
+  routing saves nothing here (the naive arm sends everything to T2, the
+  optimized arm to T0, both Gemma). The 23.6% comes from the other
+  levers: file memory, retrieval, pruning, tool disclosure, diff writes
+  and loop limits. Each program is a one-line bug in one file, so these
+  are short sessions, where those levers have least to work with.
+- Compared with run 2, the fixes moved optimized from 71/84 to 84/84;
+  naive moved from 76/84 to 82/84, mostly from the per-case time limit
+  (find_first_in_sorted 0/3 to 3/3, sqrt 1/3 to 3/3).
+- One cell is 3 runs. Gemma under vLLM is low-entropy, so repeats often
+  use the same number of tokens even at temperature 0.7; three repeats
+  are closer to one sample than to three.
+
+## Budget and ladder rerun on the final code (2026-11-19)
+
+- Budget at real prices: PASS again, 8 calls served, 402 at call 9
+  (`evidence/scenario3-budget-20261119-021900.json`).
+- Ladder: 2 of 3 runs PASS over both days
+  (`scenario3b-ladder-20261118-232320.json`,
+  `scenario3b-ladder-20261119-021956.json`). The third
+  (`scenario3b-ladder-20261119-021902.json`) FAILED on the T1 -> T0 step.
+  Groq left the chain with $0.000259 of its $0.0006 still unspent,
+  because Groq rejected gpt-oss-120b's own output ("Parsing failed. The
+  model generated output that could not be parsed"). The gateway fell
+  back to Gemma and the task passed, but the step was not caused by a
+  budget, and the check refused to count it. That is what it is for.
+  Kept as evidence, not rerun until it passed.
+- In all three runs the agent's live message said "unavailable", not
+  "budget used up", for the lag described above; the runs last 8 to 14 s.

@@ -28,6 +28,14 @@ evidence/*
 !evidence/scenario2-failover-20261115-171258.json
 !evidence/scenario4-privacy-20261115-172056.json
 !evidence/scenario5-approval-20261115-174446.json
+!evidence/scenario3-budget-20261118-230106.json
+!evidence/scenario3b-ladder-20261118-232320.json
+!evidence/scenario1-benchmark-20261118-212204.json
+!evidence/scenario1-benchmark-20261118-232419.json
+!evidence/scenario1-benchmark-20261119-012654.json
+!evidence/scenario3-budget-20261119-021900.json
+!evidence/scenario3b-ladder-20261119-021902.json
+!evidence/scenario3b-ladder-20261119-021956.json
 
 # Bifrost persisted state (databases, logs, vector data).
 # config.json IS tracked: it is the deployment definition.

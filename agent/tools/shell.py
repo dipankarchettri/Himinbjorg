@@ -5,6 +5,7 @@ redirects, command substitution and the refusal list before this runs.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -76,6 +77,7 @@ def run_command(command, repo_root: Path, sandbox: str = "off", network: bool = 
         argv = [project_python(repo_root), *argv[1:]]
     elif argv and argv[0] in ("pytest", "py.test"):
         argv = [project_python(repo_root), "-m", "pytest", *argv[1:]]
+    shown = " ".join(argv)        # what the model asked for, not the launcher
     if sandbox != "off":
         if sandbox_mod.abi_version() >= 1:
             argv = sandboxed_argv(argv, repo_root, network)
@@ -86,9 +88,13 @@ def run_command(command, repo_root: Path, sandbox: str = "off", network: bool = 
         proc = subprocess.run(
             argv, cwd=str(repo_root), capture_output=True, stdin=subprocess.DEVNULL, text=True,
             timeout=TIMEOUT_SECONDS, shell=False,
+            # No .pyc files: CPython trusts a cached .pyc when the source's
+            # mtime (whole seconds) and size match, so a same-length edit made
+            # within a second of the last run would test stale code.
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
         )
     except subprocess.TimeoutExpired:
-        return f"ERROR: command timed out after {TIMEOUT_SECONDS}s: {' '.join(argv)}"
+        return f"ERROR: command timed out after {TIMEOUT_SECONDS}s: {shown}"
     except FileNotFoundError:
         return f"ERROR: command not found: {argv[0]}"
     except OSError as exc:
