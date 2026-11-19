@@ -1055,3 +1055,65 @@ limit. Evidence: `evidence/scenario1-benchmark-20261119-012654.json`.
   Kept as evidence, not rerun until it passed.
 - In all three runs the agent's live message said "unavailable", not
   "budget used up", for the lag described above; the runs last 8 to 14 s.
+
+## Own tasks, 10 runs per task, on Gemma 31B (2026-11-19)
+
+The headline (84% fewer tokens, 57/70 vs 31/70) was measured on one
+model family, Qwen 2.5 32B. The paid cloud runs planned to check it are
+blocked: the OpenRouter key has almost no credit left ("You requested up
+to 1200 tokens, but can only afford 376"), and the Groq free tier allows
+8,000 tokens per minute and 1,000 requests per day (measured from its
+response headers through the gateway), less than one naive call on the
+shop tasks. So the same 7 tasks ran 10 times per arm on a second local
+model: Gemma 31B (`vllm/gemma-4-31b-it-qat-w4a16`) on every tier,
+temperature 0.7, key `sk-bf-bench-local-key`.
+
+Run 1, `evidence/scenario1-benchmark-20261119-104400.json`: naive 64/70,
+optimized 60/70, 45% fewer tokens per completed task. Optimized lost
+shop_freeship 4/10 against 9/10. **Cause: retrieval.** `read_file` sent
+files over 240 lines as an outline and the first 80 lines. For the
+297-line, 10,486-character `shop/orders.py`, the model then read three
+ranges, 11,621 characters in all, more than the whole file, without ever
+seeing the whole order-total pipeline. **Fix:** a file of 12,000
+characters or less (about 3,000 tokens) is sent whole whatever its line
+count (`MAX_DEFAULT_CHARS` in `agent/tools/read.py`). Only the
+optimized arm uses retrieval, and only `orders.py` crosses 240 lines, so
+the optimized arm of the three shop tasks was rerun:
+`evidence/scenario1-benchmark-20261119-121511.json`.
+
+Pooled (`python bench/pool.py --latest-wins 104400.json 121511.json`,
+which takes each task and arm from the last pack that has it):
+
+```
+                    passed            tokens per completed task
+task             naive  optimized       naive    optimized   saving
+zero_check       10/10    10/10         7,419        6,751      9%
+add_power        10/10    10/10         9,927       14,116    42% MORE
+rename_symbol    10/10    10/10        24,832       16,866     32%
+docstring         5/10     6/10        10,088        9,042     10%
+shop_bulk_bug    10/10    10/10        16,884       14,778     13%
+shop_rename      10/10    10/10        90,358        5,551     94%
+shop_freeship     9/10     7/10       102,409      120,920    18% MORE
+ALL              64/70    63/70        38,536       23,513     39%
+```
+
+What this says:
+
+- **The saving holds on a second model, at about half the size.** 39%
+  fewer tokens per completed task with the pass rate unchanged (63 vs
+  64), against 84% on Qwen. The difference is mostly the naive arm:
+  Gemma passes 64/70 naive where Qwen passed 31/70, so there are far
+  fewer failed naive runs to charge. On a model strong enough to cope
+  without the levers, they save tokens but no longer add passes.
+- **Routing saves nothing here**, as on QuixBugs: every tier is Gemma.
+- **Where optimized costs more.** add_power: on 30-line files, diff
+  edits take three small patches where the naive arm rewrites two files
+  whole, and one patch guessed at text it had not re-read (10 turns
+  against 7). shop_freeship: pruning elides `orders.py` after three
+  turns and the model reads it again, four times in a run, about 3,000
+  tokens each, so optimized runs take 17 or 18 turns where naive often
+  takes 7. Keeping the file being edited in context is a Day 5 change,
+  measured there, not tuned inside this measurement.
+- Gemma under vLLM is low-entropy: naive add_power used between 9,876
+  and 9,956 tokens in all 10 runs. Ten repeats are fewer independent
+  samples than the count suggests.

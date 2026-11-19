@@ -208,7 +208,7 @@ directory with a per-scenario log, the JSON artifacts, and `SUMMARY.md`.
 
 | Scenario | Script | Make target | Status |
 | --- | --- | --- | --- |
-| 0 unit tests | `bench/test_*.py` | `make test` | 107 passing in the pack (217 today) |
+| 0 unit tests | `bench/test_*.py` | `make test` | 107 passing in the pack (218 today) |
 | 1 token efficiency | `bench/benchmark.py` | `make bench` | 57/70 vs 31/70 passed, 84% fewer tokens per completed task (pooled, table below) |
 | 2 failover | `bench/failover_scenario.py` | `make scenario-failover` | PASS |
 | 3 budget | `bench/budget_scenario.py` | `make scenario-budget` | PASS (synthetic pricing, disclosed); PASS at real Gemini prices with `BUDGET_PRICING=real` |
@@ -291,6 +291,13 @@ ALL                 31/70     57/70         88,196      13,913      84%
 Wall time per run on the shop tasks: 195 s naive, 32 s optimized. An
 identical re-run of `add_power` went from 4,402 provider tokens to 0, every
 call served from the gateway cache by exact hash.
+
+**On a second model** (Gemma 31B on vLLM, same tasks, 10 runs per arm,
+2026-11-19): 63/70 vs 64/70 passed, 23,513 vs 38,536 tokens per completed task,
+39% fewer. Reproduce with `python bench/pool.py --latest-wins
+evidence/scenario1-benchmark-20261119-104400.json
+evidence/scenario1-benchmark-20261119-121511.json`; why two packs, and where
+optimized costs more, is in `docs/VERIFIED.md`.
 
 No per-lever ranking is claimed: two ablations (one lever off at a time)
 could not separate individual levers from sampling noise at 3 repeats, so

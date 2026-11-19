@@ -365,6 +365,25 @@
             ]
           }
         ]
+      },
+      {
+        "id": "vk-bench-cloud",
+        "name": "Benchmark (cloud, $5 cap)",
+        "value": "sk-bf-bench-cloud-key",
+        "is_active": true,
+        "provider_configs": [
+          {
+            "provider": "openrouter",
+            "weight": 1.0,
+            "allowed_models": [
+              "anthropic/claude-haiku-5.5",
+              "deepseek/deepseek-v4.1-flash"
+            ],
+            "key_ids": [
+              "*"
+            ]
+          }
+        ]
       }
     ],
     "budgets": [
@@ -396,6 +415,12 @@
         "id": "bud-ladder-groq",
         "provider_config_id": 903,
         "max_limit": 0.0006,
+        "reset_duration": "1M"
+      },
+      {
+        "id": "bud-bench-cloud",
+        "virtual_key_id": "vk-bench-cloud",
+        "max_limit": 5.0,
         "reset_duration": "1M"
       }
     ],

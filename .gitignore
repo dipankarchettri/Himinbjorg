@@ -36,6 +36,8 @@ evidence/*
 !evidence/scenario3-budget-20261119-021900.json
 !evidence/scenario3b-ladder-20261119-021902.json
 !evidence/scenario3b-ladder-20261119-021956.json
+!evidence/scenario1-benchmark-20261119-104400.json
+!evidence/scenario1-benchmark-20261119-121511.json
 
 # Bifrost persisted state (databases, logs, vector data).
 # config.json IS tracked: it is the deployment definition.

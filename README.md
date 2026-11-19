@@ -63,8 +63,9 @@ From the committed evidence pack, all 7 stages PASS:
 
 | Scenario | Result |
 | --- | --- |
-| 0 unit tests | 107 passing in the pack (217 today): security, edit tools, agent loop, task checkers |
+| 0 unit tests | 107 passing in the pack (218 today): security, edit tools, agent loop, task checkers |
 | 1 token efficiency (7 tasks x 10 runs, T=0.7) | 57/70 passed vs 31/70 naive; 13,913 vs 88,196 tokens per completed task (84% fewer). On the 21-file repository: 20/30 vs 3/30 |
+| 1 on a second model: same 7 tasks x 10 runs, Gemma 31B (local vLLM) | 63/70 passed vs 64/70 naive; 23,513 vs 38,536 tokens per completed task (39% fewer). Gemma is strong enough to pass naive, so the levers save tokens but add no passes; optimized cost more on add_power and shop_freeship |
 | 1 outside tasks: QuixBugs, 28 programs x 3 runs (Gemma 31B, local vLLM) | 84/84 passed vs 82/84 naive; 15,339 vs 20,078 tokens per completed task (24% fewer). Every tier is the same model here, so routing contributes nothing; optimized used more tokens on 7 of the 28 |
 | 1b identical re-run | 4,402 -> 0 provider tokens, every call served from the semantic cache |
 | 2 failover | PASS: broken OpenAI -> Anthropic -> local, with attribution |
@@ -324,7 +325,9 @@ evidence/         the committed proof pack
 - **Local tool calling needs an instruct model.** The `qwen2.5-coder` family
   returns tool calls as plain text and cannot drive the agent; use
   `qwen2.5:32b-instruct` or a cloud tier.
-- **Cloud runs are small.** Gemini ran 3 runs per cell on a free tier
+- **Cloud runs are small.** The planned 10-runs-per-task cloud check is
+  blocked on credit (OpenRouter) and free-tier limits (Groq: 8,000
+  tokens per minute); it ran on a second local model instead. Gemini ran 3 runs per cell on a free tier
   (30 of 336 calls were rate-limited and absorbed by failover); the Claude
   run was cut short by the OpenRouter account running out of credit. The
   budget and ladder runs at real prices are single runs of one short

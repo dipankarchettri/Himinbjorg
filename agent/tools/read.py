@@ -14,6 +14,13 @@ from pathlib import Path
 from ..security.policy import is_secret_path
 
 MAX_DEFAULT_LINES = 240
+# A longer file is still sent whole when it is this small (about 3,000
+# tokens). Measured 2026-11-19, shop_freeship on Gemma 31B, 10 runs: the
+# 297-line, 10,486-character orders.py came back as an outline and 80
+# lines; the model then read three ranges, 11,621 characters in all, more
+# than the whole file, and passed 4/10 against 9/10 for the naive arm,
+# which saw the whole file.
+MAX_DEFAULT_CHARS = 12_000
 MAX_GREP_MATCHES = 60
 
 
@@ -43,7 +50,7 @@ def read_file(path: str, repo_root: Path, retrieval: bool = True,
         body = "\n".join(f"{i:>5}  {lines[i-1]}" for i in range(s, e + 1))
         return f"{rel} lines {s}-{e} of {len(lines)}:\n{body}"
 
-    if retrieval and len(lines) > MAX_DEFAULT_LINES:
+    if retrieval and len(lines) > MAX_DEFAULT_LINES and len(text) > MAX_DEFAULT_CHARS:
         outline = _outline(lines)
         head = "\n".join(f"{i+1:>5}  {l}" for i, l in enumerate(lines[:80]))
         return (f"{rel}: {len(lines)} lines, too long to send whole.\n"

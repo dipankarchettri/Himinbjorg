@@ -241,3 +241,16 @@ def test_real_escaped_quote_in_code_still_matches(tmp_path):
     out = apply_patch(str(f), 'print("say \\"hi\\"")', 'print("say \\"bye\\"")', tmp_path)
     assert out.startswith("patched"), out
     assert f.read_text() == 'print("say \\"bye\\"")\n'
+
+
+def test_read_file_sends_a_small_long_file_whole_and_outlines_a_big_one(tmp_path):
+    # Measured 2026-11-19: outlining the 297-line, 10 KB shop/orders.py
+    # cost more in range reads than the whole file and lost shop_freeship.
+    from agent.tools.read import MAX_DEFAULT_CHARS, MAX_DEFAULT_LINES, read_file
+    small = tmp_path / "small.py"
+    small.write_text("x = 1\n" * (MAX_DEFAULT_LINES + 50))
+    out = read_file(str(small), tmp_path)
+    assert "too long to send whole" not in out and out.count("x = 1") == MAX_DEFAULT_LINES + 50
+    big = tmp_path / "big.py"
+    big.write_text(("y = '" + "a" * 60 + "'\n") * (MAX_DEFAULT_CHARS // 40))
+    assert "too long to send whole" in read_file(str(big), tmp_path)
