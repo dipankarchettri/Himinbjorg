@@ -179,8 +179,7 @@ Built by Essential Engineers (Anusha A, J Bhuvanesh and Dipankar Chettri)
 for the Geek Room AI Global Hackathon, theme *Build a Coding Agent That
 Gets the Job Done on the Fewest Tokens*, with
 [Bifrost](https://github.com/maximhq/bifrost) by Maxim AI and
-[Tavily](https://tavily.com) web search. The name is Heimdall's hall at
-the end of the Bifrost bridge, where the gate is kept.
+[Tavily](https://tavily.com) web search.
 
 ## License
 
