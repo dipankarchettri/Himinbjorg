@@ -304,6 +304,17 @@ three arms, 2026-11-20): 70/70 in every arm; 22,499 tokens per completed
 task optimized against 35,046 naive, 36% fewer; keepctx 36,048. Reproduce
 with `python bench/pool.py evidence/scenario1-benchmark-20261119-224023.json`.
 
+**On real issues** (SWE-bench Verified, 20 single-file "<15 min fix"
+instances fixed by seed before any run, Qwen 3.8, 3 runs per arm,
+official harness, 2026-11-20): 37/60 resolved optimized against 32/60
+naive; 165,409 against 446,183 tokens per resolved issue, 63% fewer.
+`bench/swebench_run.py`, `evidence/swebench-20261120-005506/`.
+
+**Against opencode** (2.3.2, same tasks, gateway and Qwen 3.8, 5 runs per
+task, 2026-11-20): 35/35 passed at 126,759 tokens per completed task,
+against 22,499 for this agent. `bench/opencode_compare.py`,
+`evidence/opencode-compare-20261120-040443.json`.
+
 **On a paid cloud model** (Claude Haiku 5.5 through OpenRouter, same tasks,
 10 runs per arm, three arms, 2026-11-19): gateway-priced dollars per
 completed task $0.00978 naive, $0.00287 optimized (71% cheaper), $0.00171

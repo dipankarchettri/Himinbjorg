@@ -42,8 +42,11 @@ Gateway-reported, on 7 benchmark tasks, 10 runs per task in each arm.
 | Claude Haiku 5.5 (OpenRouter) | 67/70 vs 68/70 | 71% lower cost ($0.00287 vs $0.00978) |
 | Claude Haiku 5.5, context kept whole (`AGENT_PRUNE_MODE=budget`) | 69/70 vs 68/70 | 82% lower cost ($0.00171) |
 
-On 28 outside programs (QuixBugs) it passed 84/84 against 82/84 with 24%
-fewer tokens. Every table, its conditions and the runs that went the
+On 20 real GitHub issues from SWE-bench Verified (Qwen 3.8, 3 runs
+each) it resolved 37/60 against 32/60 with the levers off, using 63% fewer
+tokens per resolved issue. On the same model and tasks, opencode used 5.6
+times its tokens. On 28 outside programs (QuixBugs) it passed 84/84
+against 82/84 with 24% fewer tokens. Every table, its conditions and the runs that went the
 other way are in [docs/RESULTS.md](docs/RESULTS.md), backed by the
 evidence packs in [`evidence/`](evidence/).
 
@@ -161,7 +164,8 @@ Read more: [architecture](docs/02-ARCHITECTURE.md),
 - **Local tool calling needs an instruct model.** The `qwen2.5-coder`
   family returns tool calls as plain text; use `qwen2.5:32b-instruct`, a
   model of similar strength, or a cloud tier.
-- **Benchmarks are small.** The own tasks are small repositories, and the
+- **Benchmarks are small.** The own tasks are small repositories, the
+  SWE-bench run is 20 of Verified's easiest issues, and the
   10-runs-per-task cloud check covers one paid provider.
 - **The sandbox is Linux-only** and does not yet cover the git tool or
   UDP.

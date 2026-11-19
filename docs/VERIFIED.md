@@ -1295,3 +1295,107 @@ ALL           70/70 70/70  70/70      35,046   22,499     36,048
 - About two minutes of opencode test runs shared the GPU with a few
   rename_symbol and docstring runs, which may have slowed their wall
   time; tokens are unaffected.
+
+## SWE-bench Verified subset, on Qwen 3.8 27B (2026-11-20)
+
+Real GitHub issues in Django, SymPy, Sphinx, scikit-learn, Matplotlib,
+xarray and pytest, graded by the official harness (`swebench` 5.0.2,
+`swebench.harness.run_evaluation`, in its own containers). The 20
+instances were fixed before any run by `bench/swebench_run.py select`:
+Verified's "<15 min fix" difficulty and a gold patch touching one file
+(188 eligible of 500), then `random.Random(20261119).sample(..., 20)`.
+The list is `bench/swebench_subset.json`. The gold patch is never shown
+to the agent; the issue text is the whole prompt, plus a note that the
+repository's dependencies are not installed, so its tests may not run.
+
+Every tier `vllm/qwen3.8-27b-fp8`, temperature 0.7, 30-turn limit, two
+arms, 3 runs per instance per arm.
+`evidence/swebench-20261120-005506/` (`runs.json` with every diff,
+`graded.json`, the harness reports; the harness logs are not committed).
+
+```
+                                    resolved       tokens per run
+instance                           naive   opt     naive        opt
+django__django-10880                0/3    2/3    312,992    101,443
+django__django-11163                3/3    3/3    135,384     13,619
+django__django-11239                2/3    2/3    108,827    100,070
+django__django-13933                2/3    3/3    269,989     56,851
+django__django-14752                3/3    1/3     20,334     58,847
+django__django-15315                2/3    1/3     64,824     25,498
+django__django-15569                3/3    3/3     47,104     12,597
+matplotlib__matplotlib-13989        1/3    2/3    311,944    120,035
+pydata__xarray-4075                 1/3    3/3    335,384     88,714
+pytest-dev__pytest-5809             3/3    3/3     20,966     16,863
+scikit-learn__scikit-learn-13142    3/3    3/3    328,749    104,555
+sphinx-doc__sphinx-10449            1/3    0/3    382,156    276,281
+sphinx-doc__sphinx-9230             1/3    2/3    306,499    147,773
+sphinx-doc__sphinx-9258             0/3    0/3    141,618    175,045
+sympy__sympy-15809                  1/3    3/3    230,882    109,027
+sympy__sympy-16766                  0/3    1/3    453,446    115,211
+sympy__sympy-18189                  0/3    0/3    460,139    211,032
+sympy__sympy-19637                  3/3    2/3    129,548     54,521
+sympy__sympy-20916                  0/3    0/3    449,638    151,953
+sympy__sympy-23534                  3/3    3/3    248,857    100,098
+ALL                                32/60  37/60
+```
+
+- **Resolved: 37/60 optimized, 32/60 naive.** Instances resolved at
+  least once: 16 and 15 of 20. optimized resolved more on seven
+  instances, naive on four (django 14752 and 15315, sympy 19637, sphinx
+  10449).
+- **Tokens per resolved issue: 165,409 against 446,183 (63% fewer).**
+  6.12M tokens in all against 14.28M; median 73,190 tokens and 11 turns
+  per run against 276,777 and 23.5.
+- **Five naive runs never finished.** Without pruning, the conversation
+  outgrew the server's 32,768-token window and it refused the request
+  (HTTP 400, "maximum context length"); those runs count as not
+  resolved. No optimized run did.
+- Mean wall time per run: 75 s optimized, 113 s naive.
+- **What this does not show.** It is a subset of the easiest Verified
+  issues, chosen to fit one night on one GPU, with a 27B model in
+  non-thinking mode; the rate is not comparable with the full-benchmark
+  numbers on the public leaderboard.
+- A pilot on two of the instances, one run per arm, resolved both in
+  both arms: 16,164 tokens per resolved issue optimized against 81,434
+  (`evidence/swebench-20261120-005220/`).
+
+## opencode on the same tasks, model and gateway (2026-11-20)
+
+opencode 2.3.2 (`@opencode/cli`), `opencode run --auto` with each task's
+own prompt, through Bifrost to the same `vllm/qwen3.8-27b-fp8`, 5 runs
+per task, in a fresh copy of each task repository with the task's own
+checker deciding. Its tokens are read from the gateway's request log
+(its user agent, in the run's time window); the gateway cache was off
+for it, since caching there is opt-in per request.
+`bench/opencode_compare.py`, `evidence/opencode-compare-20261120-040443.json`.
+Compared with the Qwen 3.8 pack above (10 runs per task):
+
+```
+                 opencode            Himinbjorg optimized    naive
+task          passed  per completed   passed  per completed   per completed
+zero_check     5/5       49,069       10/10      10,037          10,528
+add_power      5/5       29,962       10/10       7,095           9,650
+rename_symbol  5/5       80,228       10/10      17,554          21,490
+docstring      5/5       19,770       10/10       7,283           9,836
+shop_bulk_bug  5/5       71,470       10/10      22,176          28,070
+shop_rename    5/5       59,801       10/10      10,233          55,406
+shop_freeship  5/5      577,016       10/10      83,114         110,344
+ALL           35/35     126,759       70/70      22,499          35,046
+```
+
+- **Both pass everything; opencode spends 2.7 to 6.9 times the tokens
+  on every task**, 5.6 times overall. Without shop_freeship, 51,717
+  against 12,396 (4.2 times).
+- Much of the gap is the fixed cost of each request: opencode's first
+  request on a two-line fix was about 9,900 tokens; ours on zero_check
+  is about 1,200.
+- **Conditions differ, so this is not a controlled comparison.**
+  opencode ran on its own defaults (sampling, turn limits, tools, its
+  own system prompt); ours ran at temperature 0.7 with an 18-turn
+  limit. It ran 5 runs per task against our 10.
+- **Tokens, not dollars.** On a provider with prompt caching, most of
+  opencode's repeated prefix would be billed at a cache-read price, so
+  the dollar gap would be smaller than the token gap. Not measured.
+- opencode takes its project directory from `$PWD`, not the process's
+  working directory; the harness sets it per run, and stops if this
+  checkout changes during a run.

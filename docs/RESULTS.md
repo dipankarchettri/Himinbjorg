@@ -40,6 +40,38 @@ On the 21-file repository alone the headline run passed 20/30 against
 - **Where every tier is the same model** (Gemma, QuixBugs, Haiku, Qwen 3.8),
   routing contributes nothing.
 
+## Real issues: SWE-bench Verified subset
+
+20 real GitHub issues (Django, SymPy, Sphinx, scikit-learn, Matplotlib,
+xarray, pytest), chosen by a fixed seed before any run from Verified's
+easiest, single-file fixes, graded by the official harness. Qwen 3.8
+27B on every tier, 3 runs per issue per arm.
+
+| Arm | Resolved | Tokens per resolved issue |
+| --- | --- | --- |
+| naive | 32/60 | 446,183 |
+| levers on | 37/60 | 165,409 (63% fewer) |
+
+Five naive runs outgrew the model's 32k window and were refused; no
+levers-on run did. This is a subset of the easiest issues with a 27B
+model, not comparable with full-benchmark leaderboard numbers. The per
+issue table is in `VERIFIED.md`.
+
+## Against another agent: opencode
+
+opencode 2.3.2 on the same 7 tasks, through the same gateway to the same
+Qwen 3.8 model, 5 runs per task, its tokens read from the gateway's log.
+
+| Agent | Passed | Tokens per completed task |
+| --- | --- | --- |
+| opencode | 35/35 | 126,759 |
+| Himinbjorg | 70/70 | 22,499 (82% fewer) |
+
+Fewer tokens on every task, by 2.7 to 6.9 times. opencode ran on its own
+defaults, so this is not a controlled comparison, and it counts tokens,
+not dollars: with a provider prompt cache, much of opencode's repeated
+prompt would be billed at a tenth.
+
 ## Cost on a paid provider
 
 Claude Haiku 5.5 through OpenRouter, 7 tasks x 10 runs per arm, priced by
@@ -92,6 +124,7 @@ request to be read from the provider's prompt cache, billed at a tenth.
 make pool    # the headline table from the committed packs, no gateway needed
 make bench   # a fresh benchmark, naive vs optimized
 make proof   # every scenario into evidence/<timestamp>/ (about an hour)
+python bench/pool.py evidence/scenario1-benchmark-20261119-224023.json    # the Qwen 3.8 table
 python bench/pool.py --latest-wins evidence/scenario1-benchmark-20261119-204844.json \
     evidence/scenario1-benchmark-20261119-221735.json \
     evidence/scenario1-benchmark-20261119-222203.json    # the Haiku table
@@ -105,3 +138,21 @@ M=openrouter/anthropic/claude-haiku-5.5
 BENCH_MODEL_CHEAP=$M BENCH_MODEL_CAPABLE=$M AGENT_MODEL_LOCAL_CODE=$M AGENT_MODEL_LOCAL_SMALL=$M \
     python bench/benchmark.py --tasks all --arms naive,optimized,keepctx --repeats 10
 ```
+
+SWE-bench needs Docker and its own environment, since the harness pins
+its dependencies:
+
+```sh
+python3 -m venv .venv-swebench && .venv-swebench/bin/pip install swebench==5.0.2 pyarrow
+.venv-swebench/bin/python bench/swebench_run.py select --n 20     # writes the issue texts; the subset is committed
+.venv/bin/python bench/swebench_run.py run --arms naive,optimized --repeats 3
+.venv-swebench/bin/python bench/swebench_run.py grade evidence/swebench-<stamp>
+```
+
+opencode, pointed at the gateway by an `opencode.json` in its own
+directory (the script's docstring has the setup):
+
+```sh
+OPENCODE_BIN=... OPENCODE_HOME=... BF_VK=... python bench/opencode_compare.py --tasks all --repeats 5
+```
+
