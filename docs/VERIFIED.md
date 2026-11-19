@@ -1250,3 +1250,48 @@ ALL           68/70 67/70  69/70     60,068  34,676    36,940      0.00978  0.00
   and any text that still contains the old name. rename_symbol,
   optimized: 28,264 -> 21,823 tokens, median turns 7 -> 5.5; keepctx
   25,660 -> 18,945.
+
+## Own tasks, 10 runs per task, on Qwen 3.8 27B (2026-11-20)
+
+Every tier `vllm/qwen3.8-27b-fp8` (FP8, non-thinking, on a local vLLM
+server with a 32k window), temperature 0.7, key `sk-bf-bench-local-key`,
+three arms, on the same code as the Haiku run above.
+`evidence/scenario1-benchmark-20261119-224023.json`; `python bench/pool.py`
+over it reproduces the table.
+
+```
+                    passed               tokens per completed task
+task          naive  opt  keepctx      naive      opt    keepctx
+zero_check    10/10 10/10  10/10      10,528   10,037     10,362
+add_power     10/10 10/10  10/10       9,650    7,095      7,885
+rename_symbol 10/10 10/10  10/10      21,490   17,554     21,852
+docstring     10/10 10/10  10/10       9,836    7,283      5,405
+shop_bulk_bug 10/10 10/10  10/10      28,070   22,176     24,908
+shop_rename   10/10 10/10  10/10      55,406   10,233     11,632
+shop_freeship 10/10 10/10  10/10     110,344   83,114    170,291
+ALL           70/70 70/70  70/70      35,046   22,499     36,048
+```
+
+- **Every run passed, in every arm.** Qwen 2.5 32B solved shop_freeship
+  in neither arm; Qwen 3.8 solves it every time. As on Gemma and Haiku,
+  the levers can only save tokens here, not add passes.
+- **optimized: 36% fewer tokens per completed task, fewer on every
+  task** (5% on zero_check to 82% on shop_rename), and less than half
+  the time: 25.8 s per run against 60.0 s naive.
+- **keepctx: 3% more tokens than naive overall, 54% more on
+  shop_freeship.** It never compacted (no run came near 85% of the
+  28,000-token budget), so its context only grew: on shop_freeship its
+  requests averaged 13,940 prompt tokens, against 6,171 for optimized
+  and 8,980 for naive. On Haiku the same growth was cheap, because the
+  repeated prefix is read from the provider's prompt cache at a tenth of
+  the price; a local server bills nothing either way, so the tokens are
+  the cost.
+- **So `AGENT_PRUNE_MODE` stays `turns` by default**, and `budget` is
+  the setting for a provider with prompt caching (Anthropic, through
+  OpenRouter or directly).
+- 12 of the 210 runs ended on a stop (no progress for three turns, or
+  the turn limit) and still passed: the fix was in, and the handover
+  says what was done.
+- About two minutes of opencode test runs shared the GPU with a few
+  rename_symbol and docstring runs, which may have slowed their wall
+  time; tokens are unaffected.

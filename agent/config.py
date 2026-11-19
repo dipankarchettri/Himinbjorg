@@ -141,7 +141,8 @@ class Settings:
     # results older than a few turns (the measured default). "budget":
     # keep everything verbatim, so the prompt prefix stays cacheable, and
     # summarise the older turns once the context nears context_budget
-    # (opencode's approach; measured in docs/VERIFIED.md).
+    # (opencode's approach). Cheaper only with provider prompt caching;
+    # on a local model it costs more tokens (docs/VERIFIED.md).
     prune_mode: str = "turns"
 
     @property

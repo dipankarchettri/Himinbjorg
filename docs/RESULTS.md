@@ -21,16 +21,23 @@ that paid for them.
 | Same 7 tasks x 10 runs, Gemma 31B (local vLLM) | 63/70 vs 64/70 naive | 23,513 vs 38,536 (39% fewer) |
 | Same 7 tasks x 10 runs, Claude Haiku 5.5 (OpenRouter), pruning old turns | 67/70 vs 68/70 naive | 34,676 vs 60,068 (42% fewer) |
 | Same, keeping the context whole (`AGENT_PRUNE_MODE=budget`) | 69/70 | 36,940 (38% fewer) |
+| Same 7 tasks x 10 runs, Qwen 3.8 27B (local vLLM) | 70/70 vs 70/70 naive | 22,499 vs 35,046 (36% fewer) |
+| Same, keeping the context whole (`AGENT_PRUNE_MODE=budget`) | 70/70 | 36,048 (3% more) |
 | QuixBugs, 28 outside programs x 3 runs, Gemma 31B | 84/84 vs 82/84 naive | 15,339 vs 20,078 (24% fewer) |
 | Identical re-run of a task | | 4,402 -> 0 provider tokens, every call served from the gateway cache |
 
 On the 21-file repository alone the headline run passed 20/30 against
 3/30 naive.
 
-- **The saving shrinks as the model gets stronger.** Gemma and Haiku pass
-  nearly every task with the levers off, so there are few failed naive
-  runs to charge; the levers then save tokens but add no passes.
-- **Where every tier is the same model** (Gemma, QuixBugs, Haiku),
+- **Keeping the context whole pays only with a prompt cache.** On Haiku
+  it was the cheapest arm; on a local model, which bills every token
+  alike, it used more tokens than naive on the longest task. Pruning
+  old turns is the default.
+- **The saving shrinks as the model gets stronger.** Gemma, Haiku and
+  Qwen 3.8 pass nearly every task with the levers off, so there are few
+  failed naive runs to charge; the levers then save tokens but add no
+  passes.
+- **Where every tier is the same model** (Gemma, QuixBugs, Haiku, Qwen 3.8),
   routing contributes nothing.
 
 ## Cost on a paid provider

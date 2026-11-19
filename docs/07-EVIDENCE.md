@@ -299,6 +299,11 @@ evidence/scenario1-benchmark-20261119-104400.json
 evidence/scenario1-benchmark-20261119-121511.json`; why two packs, and where
 optimized costs more, is in `docs/VERIFIED.md`.
 
+**On a third model** (Qwen 3.8 27B on vLLM, same tasks, 10 runs per arm,
+three arms, 2026-11-20): 70/70 in every arm; 22,499 tokens per completed
+task optimized against 35,046 naive, 36% fewer; keepctx 36,048. Reproduce
+with `python bench/pool.py evidence/scenario1-benchmark-20261119-224023.json`.
+
 **On a paid cloud model** (Claude Haiku 5.5 through OpenRouter, same tasks,
 10 runs per arm, three arms, 2026-11-19): gateway-priced dollars per
 completed task $0.00978 naive, $0.00287 optimized (71% cheaper), $0.00171

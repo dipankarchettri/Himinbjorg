@@ -33,7 +33,7 @@ returns tool calls as plain text and cannot drive the agent.
 | Key | Purpose |
 | --- | --- |
 | `AGENT_CONTEXT_TOKENS` | Context budget in estimated tokens, default 28000 (for a 32k window). Keep it below the local model's window. A file up to a quarter of it is sent whole |
-| `AGENT_PRUNE_MODE` | `turns` (default): old tool output is pruned every few turns. `budget`: the context is kept verbatim and older turns are replaced by a structured summary only near `AGENT_CONTEXT_TOKENS`. On Claude Haiku, `budget` was 82% cheaper than the naive baseline against 71% for `turns`; it is not the default until it is measured on a local model |
+| `AGENT_PRUNE_MODE` | `turns` (default): old tool output is pruned every few turns. `budget`: the context is kept verbatim and older turns are replaced by a structured summary only near `AGENT_CONTEXT_TOKENS`. Use `budget` with a provider that has prompt caching: on Claude Haiku it was 82% cheaper than the naive baseline against 71% for `turns`. On a local model it used 60% more tokens than `turns` (Qwen 3.8), since nothing discounts the repeated context |
 | `AGENT_PRUNE_STEP` | Default `4`: with `turns`, the pruning boundary moves in steps, so the prompt prefix stays stable and provider prompt caching hits. On Claude it cut input cost by about a quarter against `1` |
 
 ## Sandbox

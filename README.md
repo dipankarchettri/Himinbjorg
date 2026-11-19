@@ -38,6 +38,7 @@ Gateway-reported, on 7 benchmark tasks, 10 runs per task in each arm.
 | --- | --- | --- |
 | Qwen 2.5 32B (local) | 57/70 vs 31/70 | 84% fewer tokens (13,913 vs 88,196) |
 | Gemma 31B (local) | 63/70 vs 64/70 | 39% fewer tokens |
+| Qwen 3.8 27B (local) | 70/70 vs 70/70 | 36% fewer tokens, in less than half the time |
 | Claude Haiku 5.5 (OpenRouter) | 67/70 vs 68/70 | 71% lower cost ($0.00287 vs $0.00978) |
 | Claude Haiku 5.5, context kept whole (`AGENT_PRUNE_MODE=budget`) | 69/70 vs 68/70 | 82% lower cost ($0.00171) |
 
