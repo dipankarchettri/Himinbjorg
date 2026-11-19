@@ -16,6 +16,7 @@ from .memory.ledger import Ledger, LedgerEntry
 from .security import policy
 from .security import redact as redact_mod
 from .security.policy import InvalidArgs, Permission
+from .tools import read as read_mod
 from .tools import write as write_mod
 from .tools.registry import Registry
 
@@ -57,12 +58,19 @@ a function, grep for "def name".
 
 Never guess what a file contains. Only edit text you have seen in a tool
 result in this session; if you have not seen it, read or grep first.
+
+When you need several files, read them all in one reply, with one tool
+call each.
 """
 
 _PROMPT_PATCH_RECOVERY = """
 If apply_patch reports that the text was not found, copy the exact text
 from the region it shows you, or read the file again, including
 indentation. To append to the end of a file, pass an empty find.
+"""
+
+_PROMPT_PATCH_SHOWS_FILE = """A successful apply_patch shows the file as it is now, so do not read it
+again before the next edit.
 """
 
 _PROMPT_TAIL = """
@@ -75,9 +83,11 @@ Only when the change is actually written to disk and checked, reply with
 a short plain-text summary and no tool calls."""
 
 
-def system_prompt(diff_writes: bool = True) -> str:
+def system_prompt(diff_writes: bool = True, file_memory: bool = True) -> str:
     if diff_writes:
-        return _PROMPT_HEAD + _PROMPT_EDIT_DIFF + _PROMPT_BODY + _PROMPT_PATCH_RECOVERY + _PROMPT_TAIL
+        shows = _PROMPT_PATCH_SHOWS_FILE if file_memory else ""
+        return (_PROMPT_HEAD + _PROMPT_EDIT_DIFF + _PROMPT_BODY + _PROMPT_PATCH_RECOVERY
+                + shows + _PROMPT_TAIL)
     return _PROMPT_HEAD + _PROMPT_EDIT_WHOLE + _PROMPT_BODY + _PROMPT_TAIL
 
 
@@ -175,18 +185,24 @@ class Agent:
     RATE_LIMIT_WAIT = 5.0
 
     def __init__(self, settings, privacy, client: llm_mod.LLMClient, registry: Registry,
-                 printer=print):
+                 printer=print, on_text=None):
         self.settings = settings
         self.privacy = privacy
         self.client = client
         self.registry = registry
         self.print = printer
+        # Model text as it arrives (the CLI and the editor). None: calls are
+        # not streamed, as in the benchmark.
+        self.on_text = on_text
+        self.answer_streamed = False    # the last answer was already shown live
         self.ledger = Ledger(pruning_enabled=settings.levers.pruning,
                              prune_step=settings.prune_step,
-                             context_budget=settings.context_budget)
+                             context_budget=settings.context_budget,
+                             mode=getattr(settings, "prune_mode", "turns"))
+        by_turns = settings.levers.pruning and self.ledger.mode == "turns"
         self.files = FileMemory(
             enabled=settings.levers.file_memory,
-            horizon=self.ledger.horizon if settings.levers.pruning else None)
+            horizon=self.ledger.horizon if by_turns else None)
         self.stats = LoopStats()
         self._last_provider: str | None = None
         self._seen_tool_calls: dict[str, tuple[int, str]] = {}   # sig -> (turn, head)
@@ -229,7 +245,11 @@ class Agent:
             if len(found) >= limit:
                 break
         listing = "\n".join(f"  {f}" for f in found) or "  (empty)"
-        more = "\n  ..." if len(found) >= limit else ""
+        # Measured 2026-11-19, Gemma 31B: 83 of 140 benchmark runs spent
+        # their first turn on list_dir of the root this listing already
+        # shows. Say when it is complete.
+        more = ("\n  ..." if len(found) >= limit
+                else "\nThis is every file; no need to list the root again.")
         return (f"Repository root: {root}\n"
                 f"Use these exact repo-relative paths with the tools:\n{listing}{more}")
 
@@ -243,10 +263,12 @@ class Agent:
         history, and a fresh repository listing when files have changed.
         """
         base = self._turn_base
+        self.answer_streamed = False
         if not self.ledger.entries:
             self._manifest_text = self._manifest()
             self.ledger.append(LedgerEntry(base, "system",
-                                           system_prompt(self.settings.levers.diff_writes),
+                                           system_prompt(self.settings.levers.diff_writes,
+                                                         self.settings.levers.file_memory),
                                            pinned=True, kind="task"))
             self.ledger.append(LedgerEntry(base, "user", self._manifest_text, pinned=True, kind="task"))
             self.ledger.append(LedgerEntry(base, "user", task, pinned=True, kind="task"))
@@ -373,6 +395,7 @@ class Agent:
                     self._nudges += 1
                     self.ledger.append(LedgerEntry(turn, "user", nudge))
                     continue
+                self.answer_streamed = result.streamed
                 return answer
 
             self.ledger.append(LedgerEntry(
@@ -424,18 +447,101 @@ class Agent:
                 if up is None and soft:
                     continue
                 if up is None:
-                    return f"stopped: {stuck}"
+                    return self._wrap_up(stuck, decision, mutating)
                 self.print(f"\n  {stuck} on {router_mod.model_for(decision.tier, self.settings)}; "
                            f"escalating to {router_mod.model_for(up.tier, self.settings)}.")
                 decision = up
                 self.stats.escalations += 1
                 no_progress, self._failed_edits = 0, 0
 
-        return f"stopped: reached the {max_turns}-turn limit"
+        return self._wrap_up(f"reached the {max_turns}-turn limit", decision, mutating)
+
+    # Compact at this share of the context budget: the rest is room for the
+    # summary call itself and for the next reply (opencode keeps 15% free).
+    COMPACT_AT = 0.85
+
+    COMPACT_PROMPT = """The conversation is about to outgrow the context window. Summarise it
+for yourself so the work can continue: the older turns will be replaced
+by your summary. Tools are off: do not call any. Use exactly these
+headings, with terse one-line bullets, "(none)" where empty:
+
+## Objective
+## Requirements
+## Decisions
+## Work state (completed, active, blocked)
+## Next move
+## Relevant files (path: why it matters, at most 10)
+## Important context
+
+Keep exact file paths, function names, commands, error messages and test
+results. Say which edits are already written to disk. Do not continue the
+task in this reply."""
+
+    def _compact(self, decision, turn: int, mutating: bool) -> None:
+        """Replace older turns with a structured summary near the budget.
+
+        From opencode (session/compaction.ts, 2026-11-19): keep the context
+        verbatim, so every request extends the cached prefix of the last
+        one, and summarise only when it nears the window. The recent turns
+        stay as they are. On failure, the ledger's stub fitting applies.
+        """
+        keep_from = turn - self.ledger.keep_recent_turns
+        if not any(not e.pinned and e.turn < keep_from for e in self.ledger.entries):
+            return
+        self.ledger.append(LedgerEntry(turn, "user", self.COMPACT_PROMPT))
+        try:
+            result, _ = self._call(decision, turn, mutating, tools_off=True)
+        except llm_mod.GatewayError as exc:
+            trace.emit("error", {"kind": type(exc).__name__, "detail": str(exc)[:400],
+                                 "during": "compaction"})
+            result = None
+        self.ledger.entries.pop()                   # the request, not part of the work
+        summary = (result.text or "").strip() if result else ""
+        if "## " not in summary:
+            trace.emit("compaction", {"turn": turn, "ok": False})
+            return
+        before = self.ledger.estimate(turn)
+        replaced = self.ledger.compact(keep_from, summary)
+        # Earlier copies of files and results are gone from the context.
+        self.files.records.clear()
+        self._seen_tool_calls.clear()
+        self._dup_warned.clear()
+        trace.emit("compaction", {"turn": turn, "ok": True, "entries_replaced": replaced,
+                                  "tokens_before": before,
+                                  "tokens_after": self.ledger.estimate(turn)})
+        self.print(f"\n  Context near its budget: {replaced} older messages replaced "
+                   f"by a summary.")
+
+    WRAP_UP = ("You have run out of turns for this task ({reason}). Tools are now off: do "
+               "not call any. Reply in plain text with three short parts: what you did "
+               "(files changed, tests run, with results), what is left undone, and what "
+               "should be done next.")
+
+    def _wrap_up(self, reason: str, decision, mutating: bool) -> str:
+        """Stop with a handover instead of a bare "stopped".
+
+        From opencode (session/runner/max-steps.ts, 2026-11-19): at the step
+        limit, one last call with tools off asks for what was done, what is
+        left and what to do next. Costs one call, only on a run that stops.
+        """
+        stopped = f"stopped: {reason}"
+        turn = self._last_turn + 1
+        self._last_turn = turn
+        self.ledger.append(LedgerEntry(turn, "user", self.WRAP_UP.format(reason=reason)))
+        try:
+            result, _ = self._call(decision, turn, mutating, tools_off=True)
+        except llm_mod.GatewayError as exc:
+            trace.emit("error", {"kind": type(exc).__name__, "detail": str(exc)[:400],
+                                 "during": "wrap_up"})
+            return stopped
+        summary = (result.text or "").strip()
+        self.ledger.append(LedgerEntry(turn, "assistant", summary or "(no summary)"))
+        self.answer_streamed = False        # the stop line is not in the streamed text
+        return f"{stopped}\n\n{summary}" if summary else stopped
 
     # --------------------------------------------------------------- call
 
-    def _call(self, decision, turn: int, mutating: bool):
+    def _call(self, decision, turn: int, mutating: bool, tools_off: bool = False):
         """Returns (result, decision_actually_used)."""
         quota = budget_mod.poll(self.settings, self.privacy.virtual_key,
                                 ttl_seconds=5 if self._budget_unconfirmed else 20)
@@ -454,6 +560,9 @@ class Agent:
                 self.print(f"  Low budget headroom; pre-emptively using {nxt.value}.")
                 decision = router_mod.RoutingDecision(nxt, "preempt", "escalated")
         self._tier_in_flight = decision
+        if (not tools_off and self.settings.levers.pruning and self.ledger.mode == "budget"
+                and self.ledger.estimate(turn) > self.COMPACT_AT * self.ledger.context_budget):
+            self._compact(decision, turn, mutating)
 
         model = router_mod.model_for(decision.tier, self.settings)
         fallbacks = router_mod.fallbacks_for(
@@ -488,6 +597,10 @@ class Agent:
             # 1,200 cap would make the baseline unable to edit at all.
             max_tokens=1200 if self.settings.levers.diff_writes else 4096,
             temperature=self.settings.temperature,
+            on_text=None if tools_off else self.on_text,
+            # Tools stay declared: a history with tool calls and no tool
+            # definitions is refused by some providers (Anthropic).
+            tool_choice="none" if tools_off else "auto",
         )
         result = self.client.call(spec)
         if result.routing.is_fallback and result.routing.provider:
@@ -642,6 +755,10 @@ class Agent:
         # File memory (lever 3): never resend unchanged content.
         if name == "read_file" and out.ok and "path" in resolved:
             content = self.files.render(resolved["_rel"], content, turn, force_full=force_full)
+            if content.startswith(f"[{resolved['_rel']} unchanged since"):
+                # One stub per repeat, not two: the same call again gets
+                # the file, without first meeting the duplicate-call stub.
+                self._dup_warned.add(sig)
             n = self._reads_this_task[resolved["_rel"]] = self._reads_this_task.get(resolved["_rel"], 0) + 1
             if self.settings.levers.loop_limits and n == self.PAGING_HINT:
                 # Measured: 15 reads of one file in 10-line windows, hunting
@@ -658,8 +775,13 @@ class Agent:
             for k in [k for k in self._seen_tool_calls if rel in k]:
                 self._seen_tool_calls.pop(k, None)
                 self._dup_warned.discard(k)
+            # The path as a whole name: "calc.py" must not match the read
+            # of test_calc.py, which the model still needs.
+            names = re.compile(rf"(?<![\w/.-]){re.escape(rel)}(?![\w/-])")
             self.ledger.supersede(
-                lambda e, rel=resolved["_rel"]: e.kind == "tool_result" and rel in (e.content or ""))
+                lambda e: e.kind == "tool_result" and bool(names.search(e.content or "")))
+            if name == "apply_patch" and out.ok and self.settings.levers.file_memory:
+                content += self._after_patch(resolved, preview, turn)
 
         if name == "rename_symbol" and out.ok:
             # Touches many files: forget every cached file and mark earlier
@@ -692,8 +814,45 @@ class Agent:
         trace.emit("tool_result", record)
         return self._tool_result(call, turn, content, progressed=out.ok)
 
+    AFTER_PATCH_CONTEXT = 10    # lines either side of the change, for a file too long to resend
+
+    def _after_patch(self, resolved: dict, preview: str | None, turn: int) -> str:
+        """The patched file as it is now, so the next edit needs no re-read.
+
+        Measured 2026-11-19 on Gemma 31B, 10 runs per task: a patch
+        superseded the earlier read of its file, so the model could no
+        longer see it. On add_power it then guessed the next `find` from
+        memory (failed in 8 of 10 runs) and read the file again; on
+        shop_freeship every patch of orders.py was followed by a re-read.
+        Each of those is a whole turn, resending the full context.
+        """
+        rel = resolved["_rel"]
+        view = self.registry.dispatch("read_file", {"path": resolved["path"]})
+        if not view.ok:
+            return ""
+        if view.content.startswith(f"{rel} ("):
+            body, _ = redact_mod.redact(view.content)
+            self.files.render(rel, body, turn)        # recorded as sent this turn
+            return f"\n\nThe file now (no need to read it again):\n{body}"
+        # Too long to send whole: the changed lines and their surroundings.
+        hunks = [(int(m.group(1)), int(m.group(2) or 1)) for m in
+                 re.finditer(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", preview or "", re.M)]
+        if not hunks:
+            return ""
+        start = max(1, hunks[0][0] - self.AFTER_PATCH_CONTEXT)
+        end = hunks[-1][0] + hunks[-1][1] + self.AFTER_PATCH_CONTEXT
+        if end - start > 4 * read_mod.MAX_EXPANDED_LINES // 3:
+            end = hunks[0][0] + hunks[0][1] + self.AFTER_PATCH_CONTEXT
+        region = self.registry.dispatch("read_file", {"path": resolved["path"],
+                                                      "start": start, "end": end})
+        if not region.ok:
+            return ""
+        body, _ = redact_mod.redact(region.content)
+        return f"\n\nThe edited region now:\n{body}"
+
     def _elided_by_next_request(self, first_turn: int, turn: int) -> bool:
-        return self.settings.levers.pruning and first_turn < self.ledger.horizon(turn + 1)
+        return (self.settings.levers.pruning and self.ledger.mode == "turns"
+                and first_turn < self.ledger.horizon(turn + 1))
 
     def _escalation(self, decision):
         if self.settings.confidential:

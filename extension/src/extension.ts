@@ -199,6 +199,9 @@ function onEvent(ev: AgentEvent): void {
       });
       renderStatus();
       break;
+    case "delta":
+      view.post({ kind: "delta", text: String(ev.text ?? "") });
+      break;
     case "log":
       onLog(String(ev.text ?? ""));
       break;

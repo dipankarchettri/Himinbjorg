@@ -41,11 +41,21 @@ async function main(): Promise<void> {
   assert.strictEqual(fs.realpathSync(String(r.repo)), fs.realpathSync(repo));
   console.log("ready:", r.mode);
 
-  // 1. A read-only question completes with a result and stats.
+  // 1. A read-only question completes with a result and stats. The
+  //    answer streams in first as "delta" events that add up to it.
+  let streamed = "";
+  const onDelta = (ev: AgentEvent) => {
+    if (ev.type === "delta") {
+      streamed += String(ev.text ?? "");
+    }
+  };
+  c.on("event", onDelta);
   const res1 = next(c, "result");
   c.task("What does divide() in calc.py do wrong? One sentence.");
   const a1 = await res1;
+  c.off("event", onDelta);
   assert.ok(String(a1.text).length > 0);
+  assert.ok(streamed.includes(String(a1.text).trim()), "the answer arrived as deltas first");
   assert.ok(typeof (a1.stats as Record<string, unknown>).total_tokens === "number");
   console.log("answer:", String(a1.text).slice(0, 120));
 

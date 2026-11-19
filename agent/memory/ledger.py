@@ -54,6 +54,10 @@ class Ledger:
     # (the system prompt and the task), which is far worse. Applies whether
     # or not the pruning lever is on.
     context_budget: int = 28_000
+    # "turns": elide old tool results (above). "budget": send everything
+    # verbatim, so each request extends the last one's prefix; the agent
+    # replaces old turns with a summary near the budget (Agent._compact).
+    mode: str = "turns"
     entries: list[LedgerEntry] = field(default_factory=list)
     elided_tokens: int = 0
 
@@ -72,11 +76,11 @@ class Ledger:
         step = max(1, self.prune_step)
         return (h // step) * step
 
-    def render(self, current_turn: int) -> list[dict[str, Any]]:
+    def render(self, current_turn: int, fit: bool = True) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         horizon = self.horizon(current_turn)
         for e in self.entries:
-            if not self.pruning_enabled:
+            if not self.pruning_enabled or self.mode == "budget":
                 out.append(self._as_message(e, e.content))
                 continue
 
@@ -99,7 +103,29 @@ class Ledger:
                 continue
 
             out.append(self._as_message(e, content))
-        return self._fit_budget(out)
+        return self._fit_budget(out) if fit else out
+
+    def estimate(self, current_turn: int) -> int:
+        """Estimated tokens of the next request, before any fitting."""
+        return sum(estimate_tokens(m.get("content") or "")
+                   for m in self.render(current_turn, fit=False))
+
+    def compact(self, before_turn: int, summary: str) -> int:
+        """Replace unpinned entries from turns before `before_turn` with one
+        pinned summary. Cut by turn, so a tool call and its results always
+        go together. Returns how many entries were replaced."""
+        old = [e for e in self.entries if not e.pinned and e.turn < before_turn]
+        if not old:
+            return 0
+        keep_pinned = [e for e in self.entries if e.pinned and e.turn < before_turn]
+        recent = [e for e in self.entries if e.turn >= before_turn]
+        note = LedgerEntry(before_turn - 1, "user",
+                           "Summary of the earlier work in this session (the older turns "
+                           "were replaced by it):\n\n" + summary,
+                           pinned=True, kind="summary")
+        self.elided_tokens += max(0, sum(e.tokens for e in old) - note.tokens)
+        self.entries = keep_pinned + [note] + recent
+        return len(old)
 
     def _fit_budget(self, out: list[dict[str, Any]]) -> list[dict[str, Any]]:
         total = sum(estimate_tokens(m.get("content") or "") for m in out)

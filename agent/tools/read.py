@@ -21,11 +21,23 @@ MAX_DEFAULT_LINES = 240
 # than the whole file, and passed 4/10 against 9/10 for the naive arm,
 # which saw the whole file.
 MAX_DEFAULT_CHARS = 12_000
+
+
+def whole_file_chars(context_budget_tokens: int) -> int:
+    """The size up to which a file is sent whole: a quarter of the context
+    budget (about 4 characters a token), never under MAX_DEFAULT_CHARS.
+
+    opencode sends up to 2,000 lines or 50 KB whole, for windows of about
+    200k tokens. A local model here has 32k, so the limit follows the
+    budget: 28,000 characters at the default budget of 28,000 tokens.
+    """
+    return max(MAX_DEFAULT_CHARS, context_budget_tokens)
 MAX_GREP_MATCHES = 60
 
 
 def read_file(path: str, repo_root: Path, retrieval: bool = True,
-              start: int | None = None, end: int | None = None, **_) -> str:
+              start: int | None = None, end: int | None = None,
+              max_chars: int = MAX_DEFAULT_CHARS, **_) -> str:
     p = Path(path)
     try:
         text = p.read_text(encoding="utf-8", errors="replace")
@@ -50,7 +62,7 @@ def read_file(path: str, repo_root: Path, retrieval: bool = True,
         body = "\n".join(f"{i:>5}  {lines[i-1]}" for i in range(s, e + 1))
         return f"{rel} lines {s}-{e} of {len(lines)}:\n{body}"
 
-    if retrieval and len(lines) > MAX_DEFAULT_LINES and len(text) > MAX_DEFAULT_CHARS:
+    if retrieval and len(lines) > MAX_DEFAULT_LINES and len(text) > max_chars:
         outline = _outline(lines)
         head = "\n".join(f"{i+1:>5}  {l}" for i, l in enumerate(lines[:80]))
         return (f"{rel}: {len(lines)} lines, too long to send whole.\n"

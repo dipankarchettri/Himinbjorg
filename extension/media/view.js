@@ -8,7 +8,31 @@
   const send = document.getElementById("send");
   const stop = document.getElementById("stop");
 
+  // The model's text as it streams in. Any other message ends it; the
+  // final answer replaces it, so the view never shows the answer twice.
+  let live = null;
+
+  function addLive(text) {
+    if (!live) {
+      add("answer live", "");
+      live = log.lastElementChild;
+    }
+    live.textContent += text;
+    live.scrollIntoView({ block: "end" });
+  }
+
   function add(kind, text) {
+    if (kind === "answer" && live) {
+      live.textContent = text;
+      live.classList.remove("live");
+      live = null;
+      return;
+    }
+    if (live) {
+      live.classList.remove("live");
+      live.className = live.className.replace("answer", "thought");
+      live = null;
+    }
     const empty = document.getElementById("empty");
     if (empty) {
       empty.remove();
@@ -52,6 +76,10 @@
     if (kind === "busy") {
       send.disabled = !!text;
       stop.disabled = !text;
+      return;
+    }
+    if (kind === "delta" && typeof text === "string") {
+      addLive(text);
       return;
     }
     if (typeof kind === "string" && typeof text === "string") {

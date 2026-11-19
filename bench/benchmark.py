@@ -65,8 +65,18 @@ class RunResult:
     stop: str = ""          # the loop's stop reason, when it did not answer
 
 
+# Arm name -> (levers, prune mode). "keepctx": every lever on, but the
+# context is kept verbatim (cacheable) and summarised near the budget,
+# instead of eliding old tool results every few turns.
+ARMS = {
+    "naive": (LeverFlags.all_off, "turns"),
+    "optimized": (LeverFlags, "turns"),
+    "keepctx": (LeverFlags, "budget"),
+}
+
+
 def build_settings(repo: Path, levers: LeverFlags, env: dict,
-                   cache_scope: str = "") -> Settings:
+                   cache_scope: str = "", prune_mode: str = "turns") -> Settings:
     return Settings(
         bifrost_base_url=env.get("BIFROST_BASE_URL", "http://localhost:8099").rstrip("/"),
         vk_standard=env.get("BIFROST_VK_DEMO", "sk-bf-demo-user-key"),
@@ -90,12 +100,15 @@ def build_settings(repo: Path, levers: LeverFlags, env: dict,
         cache_scope=cache_scope,
         temperature=float(env.get("BENCH_TEMPERATURE", "0.7")),
         prune_step=int(env.get("AGENT_PRUNE_STEP", "4")),
+        prune_mode=prune_mode,
     )
 
 
 def run_one(task, arm: str, levers: LeverFlags, env: dict, stamp: str,
-            cache_scope: str | None = None) -> RunResult:
-    """cache_scope None means a fresh per-run scope.
+            cache_scope: str | None = None, prune_mode: str = "turns",
+            repo: Path | None = None) -> RunResult:
+    """cache_scope None means a fresh per-run scope. repo: an already
+    prepared checkout (SWE-bench), instead of materialising the task.
 
     Fresh scopes keep repeats independent: without them, repeat 2 of a
     cell would be served entirely from repeat 1's cache and report a
@@ -105,9 +118,9 @@ def run_one(task, arm: str, levers: LeverFlags, env: dict, stamp: str,
     import uuid
     if cache_scope is None:
         cache_scope = f"bench-{stamp}-{task.id}-{arm}-{uuid.uuid4().hex[:8]}"
-    repo = materialise(task, WORK / f"{task.id}-{arm}")
+    repo = repo or materialise(task, WORK / f"{task.id}-{arm}")
     trace.init(ROOT / "traces" / f"bench-{stamp}-{task.id}-{arm}.jsonl")
-    settings = build_settings(repo, levers, env, cache_scope)
+    settings = build_settings(repo, levers, env, cache_scope, prune_mode)
     privacy = PrivacyMode.build(False, settings.vk_standard, settings.vk_confidential)
 
     res = RunResult(task=task.id, arm=arm, success=False)
@@ -178,22 +191,30 @@ def summarise(results: list[RunResult], detail: bool = True) -> str:
     for r in results:
         by.setdefault((r.task, r.arm), []).append(r)
     tasks = list(dict.fromkeys(r.task for r in results))
+    # Every other arm is compared with naive; "optimized" first, as before.
+    arms = sorted(dict.fromkeys(r.arm for r in results),
+                  key=lambda a: list(ARMS).index(a) if a in ARMS else len(ARMS))
+    others = [a for a in arms if a != "naive"] or arms
+
+    def label_for(arm: str) -> str:
+        return f"{arm:10}"
 
     rows += ["", "PER TASK: success rate, median tokens over PASSING runs", "-" * 72]
     for t in tasks:
-        cells = {}
-        for arm in ("naive", "optimized"):
+        n_runs = by.get((t, "naive"), [])
+        n_ok = [r.total_tokens for r in n_runs if r.success]
+        n = (len(n_ok), len(n_runs), int(statistics.median(n_ok)) if n_ok else None)
+        fmt = lambda c: f"{c[0]}/{c[1]} med={c[2] if c[2] is not None else 'n/a'}"
+        for arm in others:
             runs = by.get((t, arm), [])
             ok = [r.total_tokens for r in runs if r.success]
-            cells[arm] = (len(ok), len(runs), int(statistics.median(ok)) if ok else None)
-        n, o = cells["naive"], cells["optimized"]
-        fmt = lambda c: f"{c[0]}/{c[1]} med={c[2] if c[2] is not None else 'n/a'}"
-        if n[2] and o[2]:
-            pct = (1 - o[2] / n[2]) * 100
-            delta = f"{abs(pct):5.1f}% {'fewer' if pct >= 0 else 'MORE'} tokens"
-        else:
-            delta = "not comparable (an arm never passed)"
-        rows.append(f"  {t:16} naive {fmt(n):18} optimized {fmt(o):18} {delta}")
+            o = (len(ok), len(runs), int(statistics.median(ok)) if ok else None)
+            if n[2] and o[2]:
+                pct = (1 - o[2] / n[2]) * 100
+                delta = f"{abs(pct):5.1f}% {'fewer' if pct >= 0 else 'MORE'} tokens"
+            else:
+                delta = "not comparable (an arm never passed)"
+            rows.append(f"  {t:16} naive {fmt(n):18} {label_for(arm)} {fmt(o):18} {delta}")
 
     # Tokens per completed task charges failed runs to the arm that paid for
     # them. Medians over passing runs hide that cost; this does not.
@@ -204,38 +225,41 @@ def summarise(results: list[RunResult], detail: bool = True) -> str:
         passed = sum(1 for r in runs if r.success)
         return spent, passed, len(runs), (spent / passed if passed else None)
 
-    for label, pick in [(t, lambda r, t=t: r.task == t) for t in tasks] + [("ALL", lambda r: True)]:
-        cells = {arm: per_completion([r for r in results if r.arm == arm and pick(r)])
-                 for arm in ("naive", "optimized")}
-        n, o = cells["naive"], cells["optimized"]
+    picks = [(t, lambda r, t=t: r.task == t) for t in tasks] + [("ALL", lambda r: True)]
+    for label, pick in picks:
+        n = per_completion([r for r in results if r.arm == "naive" and pick(r)])
         fmt = lambda c: f"{c[1]}/{c[2]} {c[3]:>9,.0f}" if c[3] else f"{c[1]}/{c[2]} {'n/a':>9}"
-        if n[3] and o[3]:
-            pct = (1 - o[3] / n[3]) * 100
-            delta = f"{abs(pct):5.1f}% {'fewer' if pct >= 0 else 'MORE'}"
-        else:
-            delta = "n/a (an arm never passed)"
-        rows.append(f"  {label:16} naive {fmt(n):16} optimized {fmt(o):16} {delta}")
+        for arm in others:
+            o = per_completion([r for r in results if r.arm == arm and pick(r)])
+            if n[3] and o[3]:
+                pct = (1 - o[3] / n[3]) * 100
+                delta = f"{abs(pct):5.1f}% {'fewer' if pct >= 0 else 'MORE'}"
+            else:
+                delta = "n/a (an arm never passed)"
+            rows.append(f"  {label:16} naive {fmt(n):16} {label_for(arm)} {fmt(o):16} {delta}")
 
     # Dollars, from the gateway's own per-request pricing. Local models are
     # $0, so on a mixed local/cloud run this is the number that matters.
     if any(r.cost_usd for r in results):
         rows += ["", "COST PER COMPLETED TASK: gateway-priced dollars / runs that passed",
                  "-" * 72]
-        for label, pick in [(t, lambda r, t=t: r.task == t) for t in tasks] + [("ALL", lambda r: True)]:
-            cells = {}
-            for arm in ("naive", "optimized"):
-                runs = [r for r in results if r.arm == arm and pick(r)]
-                passed = sum(1 for r in runs if r.success)
-                spent = sum(r.cost_usd or 0.0 for r in runs)
-                cells[arm] = (spent, passed, len(runs), spent / passed if passed else None)
-            n, o = cells["naive"], cells["optimized"]
+
+        def per_dollar(runs):
+            passed = sum(1 for r in runs if r.success)
+            spent = sum(r.cost_usd or 0.0 for r in runs)
+            return spent, passed, len(runs), spent / passed if passed else None
+
+        for label, pick in picks:
+            n = per_dollar([r for r in results if r.arm == "naive" and pick(r)])
             fmt = lambda c: f"{c[1]}/{c[2]} ${c[3]:.5f}" if c[3] is not None else f"{c[1]}/{c[2]} n/a"
-            if n[3] and o[3] is not None:
-                pct = (1 - o[3] / n[3]) * 100
-                delta = f"{abs(pct):5.1f}% {'cheaper' if pct >= 0 else 'DEARER'}"
-            else:
-                delta = "n/a"
-            rows.append(f"  {label:16} naive {fmt(n):18} optimized {fmt(o):18} {delta}")
+            for arm in others:
+                o = per_dollar([r for r in results if r.arm == arm and pick(r)])
+                if n[3] and o[3] is not None:
+                    pct = (1 - o[3] / n[3]) * 100
+                    delta = f"{abs(pct):5.1f}% {'cheaper' if pct >= 0 else 'DEARER'}"
+                else:
+                    delta = "n/a"
+                rows.append(f"  {label:16} naive {fmt(n):18} {label_for(arm)} {fmt(o):18} {delta}")
     return "\n".join(rows)
 
 
@@ -271,11 +295,12 @@ def main() -> int:
     results: list[RunResult] = []
     for task in tasks:
         for arm in arms:
-            levers = LeverFlags.all_off() if arm == "naive" else LeverFlags()
+            make_levers, prune_mode = ARMS[arm]
+            levers = make_levers()
             for rep in range(args.repeats):
                 label = arm if args.repeats == 1 else f"{arm}#{rep + 1}"
                 print(f"  running {task.id:16} [{label}] ...", flush=True)
-                r = run_one(task, arm, levers, env, stamp)
+                r = run_one(task, arm, levers, env, stamp, prune_mode=prune_mode)
                 print(f"    -> ok={r.success} tokens={r.total_tokens} "
                       f"turns={r.turns} {r.wall_seconds}s {r.error}", flush=True)
                 results.append(r)

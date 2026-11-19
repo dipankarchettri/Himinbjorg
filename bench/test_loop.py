@@ -645,3 +645,174 @@ def test_a_lagging_provider_budget_is_confirmed_on_a_later_call(repo, monkeypatc
     agent.run("explain calc.py")
     assert any("Provider changed" in p and "unavailable" in p for p in printed)
     assert any("that fallback was its budget ($0.0009 of $0.0008 used)" in p for p in printed)
+
+
+def test_a_patch_returns_the_file_so_the_next_edit_needs_no_re_read(repo):
+    # Measured: after a patch the earlier read was superseded, so the model
+    # guessed its next `find` from memory and failed, then read again.
+    patch = call("apply_patch", path="calc.py", find="    return a * b", replace="    return b * a")
+    read = lambda: ([call("read_file", path="calc.py")], "")   # noqa: E731
+    agent, _ = make_agent(repo, [([patch], ""), read(), read(), ([], "done")])
+    agent.run("fix calc.py")
+    results = tool_results(agent)
+    assert "The file now (no need to read it again)" in results[0]
+    assert "return b * a" in results[0] and "def divide" in results[0]
+    assert "unchanged since turn 1" in results[1]           # not re-sent
+    assert "return b * a" in results[2]                     # asked again: the file
+    assert not any("identical call already made" in r for r in results)
+
+
+def test_a_patch_to_a_long_file_returns_only_the_edited_region(repo):
+    big = "".join(f"def f{i}():\n    return {i}  # {'x' * 80}\n\n\n" for i in range(300))
+    (repo / "big.py").write_text(big)
+    patch = call("apply_patch", path="big.py", find="    return 150  #", replace="    return -150  #")
+    agent, _ = make_agent(repo, [([patch], "")])
+    agent.run("fix big.py")
+    [result] = tool_results(agent)[:1]
+    assert "The edited region now:" in result and "return -150" in result
+    assert "def f148" in result and "def f10()" not in result
+
+
+def test_no_file_after_a_patch_without_file_memory(repo):
+    patch = call("apply_patch", path="calc.py", find="    return a * b", replace="    return b * a")
+    agent, _ = make_agent(repo, [([patch], "")], file_memory=False)
+    agent.run("fix calc.py")
+    assert "The file now" not in tool_results(agent)[0]
+
+
+def _chunk(content=None, tool=None, finish=None, usage=None, extra=None):
+    from openai.types.chat import ChatCompletionChunk
+    delta = {}
+    if content is not None:
+        delta["content"] = content
+    if tool is not None:
+        delta["tool_calls"] = [tool]
+    return ChatCompletionChunk.model_validate({
+        "id": "x", "object": "chat.completion.chunk", "created": 0, "model": "m",
+        "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+        "usage": usage, "extra_fields": extra or {"routing_info": {"provider": "vllm"}}})
+
+
+def test_a_streamed_answer_is_shown_as_it_arrives_and_rebuilt_whole():
+    shown = []
+    chunks = [_chunk(""), _chunk("Fixed "), _chunk("the bug."),
+              _chunk(finish="stop", usage={"prompt_tokens": 9, "completion_tokens": 3,
+                                           "total_tokens": 12},
+                     extra={"cache_debug": {"cache_hit": True, "hit_type": "direct"}})]
+    body, text, calls, usage, finish, was_shown = llm_mod.assemble_stream(chunks, shown.append)
+    assert "".join(shown) == text == "Fixed the bug." and was_shown
+    assert calls == [] and finish == "stop" and usage["total_tokens"] == 12
+    routing, cache, _ = telemetry.extract(body, {})
+    assert routing.provider == "vllm" and cache.hit and cache.hit_type == "direct"
+
+
+def test_streamed_tool_call_fragments_are_joined():
+    frag = lambda **f: {"index": 0, **f}                       # noqa: E731
+    chunks = [_chunk(tool=frag(id="c1", type="function",
+                               function={"name": "read_file", "arguments": ""})),
+              _chunk(tool=frag(function={"arguments": '{"path": '})),
+              _chunk(tool=frag(function={"arguments": '"calc.py"}'})), _chunk(finish="tool_calls")]
+    _, text, calls, _, finish, was_shown = llm_mod.assemble_stream(chunks, lambda t: None)
+    assert text == "" and not was_shown and finish == "tool_calls"
+    assert calls == [{"id": "c1", "type": "function",
+                      "function": {"name": "read_file", "arguments": '{"path": "calc.py"}'}}]
+
+
+def test_a_tool_call_written_as_text_is_not_streamed():
+    shown = []
+    chunks = [_chunk('{"name": "read_file", '), _chunk('"arguments": {"path": "a.py"}}')]
+    *_, was_shown = llm_mod.assemble_stream(chunks, shown.append)
+    assert shown == [] and not was_shown
+
+
+def test_the_cli_does_not_print_a_streamed_answer_twice(repo, capsys):
+    from agent import main as main_mod
+    live = main_mod.LiveText()
+
+    class Streaming(FakeClient):
+        def call(self, spec):
+            r = super().call(spec)
+            spec.on_text(r.text)
+            r.streamed = True
+            return r
+    base, _ = make_agent(repo, [])
+    agent = Agent(base.settings, base.privacy, Streaming([([], "All done here.")]), base.registry,
+                  printer=live.line, on_text=live.text)
+    assert main_mod.run_one(agent, agent.settings, "explain calc.py") == 0
+    assert capsys.readouterr().out.count("All done here.") == 1
+
+
+def test_a_patch_hides_only_reads_of_that_file_not_of_a_similar_name(repo):
+    # "calc.py" is inside "test_calc.py": a substring match hid the test
+    # file's read after every patch of calc.py.
+    patch = call("apply_patch", path="calc.py", find="    return a * b", replace="    return b * a")
+    agent, client = make_agent(repo, [([call("read_file", path="test_calc.py")], ""),
+                                      ([call("read_file", path="calc.py")], ""), ([patch], "")])
+    agent.run("fix calc.py")
+    sent = [m["content"] for m in client.specs[-1].messages if m["role"] == "tool"]
+    assert sent[0].startswith("<untrusted-tool-output>\ntest_calc.py (")    # still visible
+    assert sent[1].startswith("[superseded:")                               # the old calc.py
+
+
+def test_the_turn_limit_ends_with_a_handover_not_a_bare_stop(repo):
+    # From opencode: one last call with tools off says what was done and
+    # what is left.
+    grep = lambda i: ([call("grep", pattern=f"x{i}")], "")        # noqa: E731
+    agent, client = make_agent(repo, [grep(i) for i in range(10)]
+                               + [([], "Did: read calc.py. Left: the fix. Next: patch divide.")],
+                               loop_limits=False)
+    out = agent.run("fix calc.py")
+    assert out.startswith("stopped: reached the 10-turn limit\n\nDid: read calc.py.")
+    last = client.specs[-1]
+    assert last.tool_choice == "none" and last.tools           # declared, not callable
+    assert "Tools are now off" in last.messages[-1]["content"]
+    assert agent.stats.turns == 10 and agent.stats.llm_calls == 11
+
+
+class SummarisingClient(FakeClient):
+    """Answers the compaction request with a summary, off the script."""
+
+    def call(self, spec):
+        if spec.tool_choice == "none" and "outgrow the context" in spec.messages[-1]["content"]:
+            self.specs.append(spec)
+            return llm_mod.CallResult(
+                text="## Objective\n- fix divide\n## Next move\n1. patch calc.py",
+                tool_calls=[], usage=telemetry.Usage(100, 10, 110),
+                routing=telemetry.RoutingInfo("ollama", "m"), cache=telemetry.CacheInfo(),
+                request_id="r", latency_s=0.0)
+        return super().call(spec)
+
+
+def _budget_agent(repo, turns, budget):
+    import dataclasses
+    base, _ = make_agent(repo, [])
+    settings = dataclasses.replace(base.settings, prune_mode="budget", context_budget=budget)
+    client = SummarisingClient(turns)
+    return Agent(settings, base.privacy, client, Registry(base.privacy, settings),
+                 printer=lambda *a, **k: None), client
+
+
+def test_budget_mode_keeps_old_results_verbatim_until_the_budget(repo):
+    grep = lambda i: ([call("grep", pattern=f"x{i}")], "")        # noqa: E731
+    agent, client = _budget_agent(repo, [([call("read_file", path="calc.py")], ""),
+                                         *[grep(i) for i in range(6)], ([], "done")], 28_000)
+    assert agent.run("explain calc.py") == "done"
+    sent = [m["content"] for m in client.specs[-1].messages if m["role"] == "tool"]
+    assert "def divide" in sent[0]                     # turn 1, still whole at turn 8
+    assert not any(m.startswith("[elided") for m in sent)
+
+
+def test_budget_mode_replaces_old_turns_with_a_summary_near_the_budget(repo):
+    reads = [([call("read_file", path=p)], "") for p in
+             ("calc.py", "test_calc.py", "CONTRIBUTING.md", "calc.py", "test_calc.py")]
+    agent, client = _budget_agent(repo, [*reads, ([], "done")], 900)
+    assert agent.run("explain calc.py") == "done"
+    summaries = [e for e in agent.ledger.entries if e.kind == "summary"]
+    assert summaries and "## Objective" in summaries[0].content
+    assert summaries[0].pinned
+    first_kept = min(e.turn for e in agent.ledger.entries if not e.pinned)
+    assert first_kept >= summaries[-1].turn             # older turns are gone
+    # Every remaining tool call still has its result.
+    ids = {tc["id"] for e in agent.ledger.entries if e.tool_calls for tc in e.tool_calls}
+    assert ids <= {e.tool_call_id for e in agent.ledger.entries if e.role == "tool"}
+    assert not any("outgrow the context" in (e.content or "") for e in agent.ledger.entries)

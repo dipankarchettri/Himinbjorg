@@ -7,7 +7,9 @@
     {"type": "cancel"}       interrupt the running task, keep the session
     {"type": "cost"} | {"type": "undo"} | {"type": "reset"} | {"type": "shutdown"}
 
-Events: ready, log, approval_request, result, cost, info, error.
+Events: ready, log, delta, approval_request, result, cost, info, error.
+`delta` is model text as it streams in, JSON-encoded like every event; the
+`result` that follows carries the whole answer.
 
 Security. The approval answer arrives on this channel, so the channel must
 carry nothing the model can write:
@@ -71,7 +73,7 @@ class Server:
         self.stdin = stdin or sys.stdin
         self.privacy, self.registry, self.client = build(settings)
         self.agent = Agent(settings, self.privacy, self.client, self.registry,
-                           printer=self._print)
+                           printer=self._print, on_text=self._text)
         self.tasks: queue.Queue = queue.Queue()
         self._pending: dict[str, dict] = {}
         self._pending_lock = threading.Lock()
@@ -83,6 +85,11 @@ class Server:
 
     def _print(self, *args, **_) -> None:
         self.ch.send("log", text=" ".join(str(a) for a in args))
+
+    def _text(self, piece: str) -> None:
+        """Model text as it arrives; the "result" message still carries
+        the whole answer."""
+        self.ch.send("delta", text=piece)
 
     def _ask_operator(self, request: dict) -> tuple[str, str]:
         """Called by the gate on the agent thread; blocks until answered."""
@@ -163,7 +170,7 @@ class Server:
             self.ch.send("info", text=result, command="undo")
         elif kind == "reset":
             self.agent = Agent(self.settings, self.privacy, self.client, self.registry,
-                               printer=self._print)
+                               printer=self._print, on_text=self._text)
             self.ch.send("info", text="New conversation.", command="reset")
         elif kind == "task":
             self._run_task(str(msg.get("text", "")).strip())

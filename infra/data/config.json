@@ -113,6 +113,18 @@
             "url": "http://host.docker.internal:8012",
             "model_name": "gemma-4-31b-it-qat-w4a16"
           }
+        },
+        {
+          "name": "vllm-qwen",
+          "value": "not-needed",
+          "models": [
+            "qwen3.8-27b-fp8"
+          ],
+          "weight": 1.0,
+          "vllm_key_config": {
+            "url": "http://host.docker.internal:8014",
+            "model_name": "qwen3.8-27b-fp8"
+          }
         }
       ],
       "network_config": {
@@ -358,7 +370,8 @@
             "provider": "vllm",
             "weight": 1.0,
             "allowed_models": [
-              "gemma-4-31b-it-qat-w4a16"
+              "gemma-4-31b-it-qat-w4a16",
+              "qwen3.8-27b-fp8"
             ],
             "key_ids": [
               "*"

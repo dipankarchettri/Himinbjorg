@@ -153,15 +153,30 @@ def _match_indent(find: str, replace: str) -> str:
     preserved; only its base level is moved.
     """
     target, current = _indent_of(find), _indent_of(replace)
-    if not replace.strip() or (target == current and "\n" not in replace):
+    # Already at the indentation of what it replaces: the model wrote the
+    # block in the file's own terms, so nothing moves. Measured 2026-11-19
+    # (Haiku, add_power): find '    return a / b', replace the same line
+    # plus a new `def power` at column 0; shifting added a second indent to
+    # the first line and the patch was refused as unparseable.
+    if not replace.strip() or target == current:
         return replace
     body = _normalise_block(replace)
     first, rest = body[0], body[1:]
     # The first line lands after whatever precedes `find` on its line, so it
     # takes the target indent only through `find` itself.
     out = [(target + first) if first.strip() else ""]
-    out += [target + ln if ln.strip() else "" for ln in rest]
+    # A new top-level definition after the first line stays at column 0.
+    # Measured, same run: find 'return a / b' (mid-line), replace it plus
+    # 'def power(a, b):' at column 0; shifting nested power inside divide,
+    # which parsed, and the model spent up to 11 more turns undoing it.
+    top = next((i for i, ln in enumerate(rest) if _TOP_LEVEL.match(ln)), len(rest)) \
+        if target else len(rest)
+    out += [target + ln if ln.strip() else "" for ln in rest[:top]]
+    out += rest[top:]
     return "\n".join(out)
+
+
+_TOP_LEVEL = re.compile(r"(def |async def |class |@)")
 
 
 def _syntax_error(path: Path, content: str) -> str | None:
@@ -192,9 +207,25 @@ def write_file(path: str, content: str, repo_root: Path, dry_run: bool = False, 
     return f"{verb} {rel} ({len(content.splitlines())} lines)"
 
 
+# Typographic quotes and dashes a model may write for plain ones. Unicode
+# spaces (no-break, thin, ideographic) are already \s. Taken from opencode
+# (packages/core/src/tool/plugin/edit.ts, 2026-11-19), whose edit tool
+# retries with the same mapping when there is no exact match.
+_TYPOGRAPHIC = str.maketrans({
+    "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
+    "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"',
+    "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-", "\u2014": "-",
+    "\u2015": "-", "\u2212": "-"})
+
+
+def _plain_line(line: str) -> str:
+    return re.sub(r"\s+", " ", line.translate(_TYPOGRAPHIC)).strip()
+
+
 def _normalise(block: str) -> list[str]:
-    """Strip per-line indentation and collapse internal runs of spaces."""
-    return [re.sub(r"\s+", " ", ln).strip() for ln in block.splitlines() if ln.strip()]
+    """Strip per-line indentation, collapse internal runs of spaces, and
+    read typographic quotes and dashes as plain ones."""
+    return [_plain_line(ln) for ln in block.splitlines() if ln.strip()]
 
 
 def _find_fuzzy(haystack_lines: list[str], needle: str) -> tuple[int, int, int] | None:
@@ -215,7 +246,7 @@ def _find_fuzzy(haystack_lines: list[str], needle: str) -> tuple[int, int, int] 
     want = _normalise(needle)
     if not want:
         return None
-    norm = [re.sub(r"\s+", " ", ln).strip() for ln in haystack_lines]
+    norm = [_plain_line(ln) for ln in haystack_lines]
     passes = [False] + ([True] if not any(w.startswith("#") for w in want) else [])
     for skip_comments in passes:
         entries = [(i, n) for i, n in enumerate(norm)
@@ -522,4 +553,22 @@ def rename_symbol(old: str, new: str, repo_root: Path, path: str | None = None,
     JOURNAL.append(batch)
     listing = ", ".join(f"{os.path.relpath(p, root)} ({n})" for p, _, _, n in changes)
     total = sum(n for *_, n in changes)
-    return f"renamed {old} -> {new}: {total} occurrences in {len(changes)} files: {listing}"
+    # Show the result and what is left, so checking needs no extra turns.
+    # Measured 2026-11-19 (Haiku, rename_symbol, 10 runs): after a bare
+    # count the model grepped for the old name, found test_multiply (not a
+    # whole-word match), patched it, then re-read every file to check.
+    diff = "\n".join(unified_diff(os.path.relpath(p, root), text, updated, context=0, limit=30)
+                     for p, text, updated, _ in changes)
+    left = []
+    for p in _rename_candidates(root, path):
+        try:
+            for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+                if old in line and len(left) < 10:
+                    left.append(f"  {os.path.relpath(p, root)}:{i}: {line.strip()[:120]}")
+        except (OSError, UnicodeDecodeError):
+            continue
+    rest = ("\nNo occurrence of the text " + repr(old) + " remains." if not left else
+            f"\nThe text {old!r} still occurs inside other names or strings (not renamed, "
+            "since it is not the whole identifier):\n" + "\n".join(left))
+    return (f"renamed {old} -> {new}: {total} occurrences in {len(changes)} files: {listing}"
+            f"\n{diff}{rest}")

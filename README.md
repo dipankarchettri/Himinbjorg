@@ -53,7 +53,9 @@ dialogs beside the exact diff (see [VS Code](#vs-code)).
 
 Day-to-day features: an interactive session that keeps context between
 tasks, diff previews at every approval, `/undo` for the agent's last edit,
-a per-task report of tokens, cache hits and gateway-priced cost, and
+a per-task report of tokens, cache hits and gateway-priced cost, the
+answer streamed as it is written, a handover (done, left, next) when a
+task runs out of turns, and
 [Tavily](https://tavily.com) web search for docs and error messages
 (no approval needed; absent in confidential mode).
 
@@ -63,9 +65,10 @@ From the committed evidence pack, all 7 stages PASS:
 
 | Scenario | Result |
 | --- | --- |
-| 0 unit tests | 107 passing in the pack (218 today): security, edit tools, agent loop, task checkers |
+| 0 unit tests | 107 passing in the pack (233 today): security, edit tools, agent loop, task checkers |
 | 1 token efficiency (7 tasks x 10 runs, T=0.7) | 57/70 passed vs 31/70 naive; 13,913 vs 88,196 tokens per completed task (84% fewer). On the 21-file repository: 20/30 vs 3/30 |
 | 1 on a second model: same 7 tasks x 10 runs, Gemma 31B (local vLLM) | 63/70 passed vs 64/70 naive; 23,513 vs 38,536 tokens per completed task (39% fewer). Gemma is strong enough to pass naive, so the levers save tokens but add no passes; optimized cost more on add_power and shop_freeship |
+| 1 on a paid cloud model: same 7 tasks x 10 runs, Claude Haiku 5.5 (OpenRouter), three arms | Dollars per completed task, gateway-priced: $0.00171 keeping the context whole (69/70 passed) and $0.00287 pruning old turns (67/70), against $0.00978 naive (68/70): 82% and 71% cheaper. Tokens: 38% and 42% fewer. Cheaper than naive on every task; $1.06 for the whole run |
 | 1 outside tasks: QuixBugs, 28 programs x 3 runs (Gemma 31B, local vLLM) | 84/84 passed vs 82/84 naive; 15,339 vs 20,078 tokens per completed task (24% fewer). Every tier is the same model here, so routing contributes nothing; optimized used more tokens on 7 of the 28 |
 | 1b identical re-run | 4,402 -> 0 provider tokens, every call served from the semantic cache |
 | 2 failover | PASS: broken OpenAI -> Anthropic -> local, with attribution |
@@ -227,6 +230,7 @@ read from the target repository, which is treated as untrusted input.
 | `AGENT_MODEL_CHEAP`, `AGENT_MODEL_CAPABLE` | Optional cloud tiers, e.g. `gemini/gemini-3.1-flash-lite` and `gemini/gemini-3.5-flash`, or `openrouter/anthropic/claude-haiku-5.5` and `openrouter/anthropic/claude-sonnet-5.5` |
 | `AGENT_PRUNE_STEP` | Default `4`: old tool output is pruned in steps, so the prompt prefix stays stable and provider prompt caching hits. On Claude it cut input cost by about a quarter against `1` |
 | `AGENT_CONTEXT_TOKENS` | Keep below the local model's context window, default 28000 for 32k |
+| `AGENT_PRUNE_MODE` | `turns` (default): prune old tool output as above. `budget`: keep the context verbatim and summarise older turns only near `AGENT_CONTEXT_TOKENS`. On Claude Haiku, 10 runs per task, `budget` was 82% cheaper than the naive baseline against 71% for `turns`; it is not yet the default because it has not been measured on a local model |
 | `AGENT_SANDBOX` | `auto` (default): approved commands run in a Landlock sandbox on Linux, writing only inside the repository and temp, with no TCP. `required` refuses commands where Landlock is missing; `off` disables it |
 | `AGENT_SANDBOX_NETWORK` | `1` lets sandboxed commands open TCP connections, e.g. for `pip install` |
 
@@ -325,16 +329,17 @@ evidence/         the committed proof pack
 - **Local tool calling needs an instruct model.** The `qwen2.5-coder` family
   returns tool calls as plain text and cannot drive the agent; use
   `qwen2.5:32b-instruct` or a cloud tier.
-- **Cloud runs are small.** The planned 10-runs-per-task cloud check is
-  blocked on credit (OpenRouter) and free-tier limits (Groq: 8,000
-  tokens per minute); it ran on a second local model instead. Gemini ran 3 runs per cell on a free tier
+- **One paid cloud provider.** The 10-runs-per-task cloud check ran on
+  Claude Haiku 5.5 only; the second provider (Groq) is blocked by its
+  free tier (8,000 tokens per minute). Gemini ran 3 runs per cell on a free tier
   (30 of 336 calls were rate-limited and absorbed by failover); the Claude
   run was cut short by the OpenRouter account running out of credit. The
   budget and ladder runs at real prices are single runs of one short
   task, and a budget can be overshot by one call, because Bifrost checks
   usage before a call, not its cost.
-- **Capability ceiling.** `shop_freeship` is solved by neither arm; it was
-  left untuned on purpose rather than fitted to the benchmark.
+- **Capability ceiling.** `shop_freeship` is solved by neither arm on
+  Qwen 2.5 32B; Gemma 31B and Claude Haiku solve it in 7 to 9 runs of 10.
+  It was left untuned on purpose rather than fitted to the benchmark.
 - **The extension needs the agent installed.** It is a front end for
   `himin --serve` and the gateway, not a self-contained package.
 

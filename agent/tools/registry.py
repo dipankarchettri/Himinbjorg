@@ -44,6 +44,12 @@ def _schema(name: str, desc: str, props: dict, required: list[str]) -> dict:
     }
 
 
+# From opencode's read tool (2026-11-19): one larger read beats many
+# small slices, each of which is a turn.
+READ_FILE_DESC = ("Read a file. Optional start/end line range; prefer one larger range "
+                  "over several small ones.")
+
+
 class Registry:
     def __init__(self, privacy, settings):
         self.privacy = privacy
@@ -62,13 +68,14 @@ class Registry:
     def _register_read(self) -> None:
         r = self.repo_root
         self._add(ToolSpec(
-            "read_file", Permission.FREE, "Read a file. Optional start/end line range.",
-            _schema("read_file", "Read a file. Optional start/end line range.",
+            "read_file", Permission.FREE, READ_FILE_DESC,
+            _schema("read_file", READ_FILE_DESC,
                     {"path": {"type": "string"},
                      "start": {"type": "integer"}, "end": {"type": "integer"}},
                     ["path"]),
             partial(read_mod.read_file, repo_root=r,
-                    retrieval=self.settings.levers.retrieval)))
+                    retrieval=self.settings.levers.retrieval,
+                    max_chars=read_mod.whole_file_chars(self.settings.context_budget))))
         self._add(ToolSpec(
             "list_dir", Permission.FREE, "List a directory.",
             _schema("list_dir", "List a directory.", {"path": {"type": "string"}}, ["path"]),

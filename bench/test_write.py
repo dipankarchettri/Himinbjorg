@@ -106,6 +106,25 @@ def test_not_found_shows_verbatim_region(tmp_path):
     assert out.startswith("ERROR") and "# BUG: no zero check" in out
 
 
+@pytest.mark.parametrize("find,first", [
+    ("return a / b", "return a / b"),             # mid-line find, block from column 0
+    ("    return a / b", "    return a / b"),     # find and block at the file's indent
+])
+def test_a_new_top_level_function_after_a_patched_line_stays_top_level(tmp_path, find, first):
+    out, text = patch(tmp_path, find, first + "\n\n\ndef power(a, b):\n    return a ** b")
+    assert out.startswith("patched"), out
+    assert "\ndef power(a, b):\n    return a ** b" in text
+    assert "    return a / b" in divide_of(text)
+
+
+def test_typographic_quotes_and_dashes_in_find_still_match(tmp_path):
+    body = 'def greet():\n    return "hi - there"  # it\'s fine\n'
+    find = "    return \u201chi \u2013 there\u201d  # it\u2019s fine"
+    out, text = patch(tmp_path, find, '    return "hello"', body=body)
+    assert out.startswith("patched"), out
+    assert text == 'def greet():\n    return "hello"\n'
+
+
 def test_empty_find_appends(tmp_path):
     out, text = patch(tmp_path, "", "\n\ndef power(a, b):\n    return a ** b\n")
     assert out.startswith("patched"), out
@@ -123,6 +142,16 @@ def test_rename_symbol_across_files(tmp_path):
     out = rename_symbol("multiply", "times", repo)
     assert out.startswith("renamed multiply -> times"), out
     assert TASKS_BY_ID["rename_symbol"].verify(repo)
+
+
+def test_rename_result_shows_the_change_and_what_is_left(tmp_path):
+    (tmp_path / "a.py").write_text("def multiply(a, b):\n    return a * b\n\n"
+                                   "def test_multiply():\n    assert multiply(2, 3) == 6\n")
+    out = rename_symbol("multiply", "times", tmp_path)
+    assert "+def times(a, b):" in out and "-def multiply(a, b):" in out
+    assert "still occurs" in out and "a.py:4: def test_multiply():" in out
+    (tmp_path / "b.py").write_text("x = times\n")
+    assert "No occurrence" in rename_symbol("times", "product", tmp_path)
 
 
 def test_rename_symbol_whole_word_only(tmp_path):

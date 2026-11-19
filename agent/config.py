@@ -137,6 +137,12 @@ class Settings:
     sandbox: str = "auto"
     sandbox_network: bool = False
     context_budget: int = 28_000
+    # How the pruning lever manages the context. "turns": elide tool
+    # results older than a few turns (the measured default). "budget":
+    # keep everything verbatim, so the prompt prefix stays cacheable, and
+    # summarise the older turns once the context nears context_budget
+    # (opencode's approach; measured in docs/VERIFIED.md).
+    prune_mode: str = "turns"
 
     @property
     def virtual_key(self) -> str:
@@ -168,6 +174,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--serve", action="store_true",
                    help="Run as the editor server (JSON lines on stdio), for the VS Code extension")
     return p
+
+
+def _prune_mode(value: str) -> str:
+    mode = value.strip().lower()
+    if mode not in ("turns", "budget"):
+        raise ValueError(f"AGENT_PRUNE_MODE must be turns or budget, not {value!r}")
+    return mode
 
 
 def _sandbox_mode(value: str) -> str:
@@ -215,6 +228,7 @@ def load(argv: list[str] | None = None) -> Settings:
         sandbox=_sandbox_mode(env.get("AGENT_SANDBOX", "auto")),
         sandbox_network=env.get("AGENT_SANDBOX_NETWORK", "0").strip().lower() in ("1", "true", "yes"),
         context_budget=int(env.get("AGENT_CONTEXT_TOKENS", "28000")),
+        prune_mode=_prune_mode(env.get("AGENT_PRUNE_MODE", "turns")),
         repo_root=repo_root,
         confidential=is_confidential(repo_root, args.confidential),
         max_turns=args.max_turns,

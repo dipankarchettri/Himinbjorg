@@ -47,8 +47,6 @@ def main(argv: list[str] | None = None) -> int:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     trace.init(settings.trace_dir / f"session-{stamp}.jsonl")
 
-    from .loop import Agent
-
     try:
         privacy, registry, client = build(settings)
     except PrivacyViolation as exc:
@@ -66,7 +64,8 @@ def main(argv: list[str] | None = None) -> int:
     quota = budget_mod.poll(settings, privacy.virtual_key)
     print(f"  {quota.describe()}\n")
 
-    agent = Agent(settings, privacy, client, registry)
+    live = LiveText() if sys.stdout.isatty() else None
+    agent = new_agent(settings, privacy, client, registry, live)
 
     task = settings_task(argv)
     if task:
@@ -74,7 +73,36 @@ def main(argv: list[str] | None = None) -> int:
     if not sys.stdin.isatty():
         print("  No task given, and stdin is not a terminal. Pass a task as an argument.")
         return 1
-    return repl(agent, settings)
+    return repl(agent, settings, live)
+
+
+class LiveText:
+    """The model's text as it arrives, kept apart from the activity lines.
+
+    On a terminal only: piped output gets the finished answer alone.
+    """
+
+    def __init__(self, out=None):
+        self.out = out or sys.stdout
+        self.mid_line = False
+
+    def text(self, piece: str) -> None:
+        self.out.write(piece)
+        self.out.flush()
+        self.mid_line = not piece.endswith("\n")
+
+    def line(self, *args, **kwargs) -> None:
+        if self.mid_line:
+            self.out.write("\n")
+            self.mid_line = False
+        print(*args, file=self.out, **kwargs)
+
+
+def new_agent(settings, privacy, client, registry, live: LiveText | None):
+    from .loop import Agent
+    if live is None:
+        return Agent(settings, privacy, client, registry)
+    return Agent(settings, privacy, client, registry, printer=live.line, on_text=live.text)
 
 
 def _delta(after: dict, before: dict) -> dict:
@@ -113,9 +141,12 @@ def run_one(agent, settings, task: str) -> int:
         print("\n  Interrupted. Session trace:", trace.path())
         return 130
 
-    print("\n" + "=" * 62)
-    print(answer)
-    print("=" * 62)
+    if agent.answer_streamed:
+        print("\n" + "=" * 62)          # the answer is above, as it arrived
+    else:
+        print("\n" + "=" * 62)
+        print(answer)
+        print("=" * 62)
     s = report(agent, settings)
     print(f"  trace: {trace.path()}")
     trace.emit("session_end", {"stats": {k: v for k, v in s.items() if k != "request_ids"},
@@ -132,12 +163,11 @@ REPL_HELP = """  Commands:
   Ctrl-C interrupts the running task and returns to the prompt."""
 
 
-def repl(agent, settings) -> int:
+def repl(agent, settings, live: LiveText | None = None) -> int:
     try:
         import readline  # noqa: F401  - line editing and history for input()
     except ImportError:
         pass
-    from .loop import Agent
 
     print("  Interactive session. Each task continues the same conversation.")
     print(REPL_HELP + "\n")
@@ -170,7 +200,7 @@ def repl(agent, settings) -> int:
                     agent._last_turn, "user", f"[The operator undid the last edit: {result}.]"))
             continue
         if line == "/reset":
-            agent = Agent(agent.settings, agent.privacy, agent.client, agent.registry)
+            agent = new_agent(agent.settings, agent.privacy, agent.client, agent.registry, live)
             print("  New conversation.")
             continue
         before = agent.stats.as_dict()
@@ -183,7 +213,7 @@ def repl(agent, settings) -> int:
         except KeyboardInterrupt:
             print("\n  Interrupted. The conversation so far is kept.")
             continue
-        print("\n" + answer + "\n")
+        print("\n" if agent.answer_streamed else "\n" + answer + "\n")
         report(agent, settings, before)
         print()
     s = report(agent, settings)

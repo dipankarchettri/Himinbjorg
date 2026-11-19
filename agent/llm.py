@@ -14,7 +14,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from . import telemetry, trace
 from .security.privacy import PrivacyMode
@@ -97,6 +97,10 @@ class CallSpec:
     cache_type: str = "direct"
     max_tokens: int = 1200
     temperature: float = 0.0
+    # Called with each piece of answer text as it arrives. Set, the call
+    # is streamed; never part of the request itself.
+    on_text: "Callable[[str], None] | None" = None
+    tool_choice: str = "auto"       # "none": tools declared but not to be called
 
 
 @dataclass
@@ -109,6 +113,7 @@ class CallResult:
     request_id: str
     latency_s: float
     finish_reason: str = ""
+    streamed: bool = False      # the text was already shown through on_text
 
 
 _EPHEMERAL = {"type": "ephemeral"}
@@ -133,6 +138,56 @@ def mark_prompt_cache(messages: list[dict]) -> list[dict]:
     if len(out) > 1:
         out[-1]["cache_control"] = _EPHEMERAL
     return out
+
+
+def assemble_stream(chunks, on_text: Callable[[str], None]):
+    """Rebuild a streamed completion: (body, text, tool_calls, usage, finish,
+    shown), where shown says whether the text went to on_text.
+
+    Verified against the gateway on 2026-11-19: every chunk carries
+    `extra_fields` (routing; `cache_debug` on a cached call, including a
+    direct-cache hit), and the last chunk before [DONE] carries `usage`
+    when stream_options.include_usage is set. Tool-call arguments arrive
+    in fragments keyed by index.
+
+    Text that opens with "{" is held back: it may be a tool call written
+    as text (see recover_text_tool_calls), not an answer.
+    """
+    extra: dict[str, Any] = {}
+    parts: list[str] = []
+    calls: dict[int, dict] = {}
+    usage = None
+    finish = ""
+    shown = None              # None until the first non-blank text decides
+    for chunk in chunks:
+        extra.update((getattr(chunk, "model_extra", None) or {}).get("extra_fields") or {})
+        if getattr(chunk, "usage", None):
+            usage = chunk.usage.model_dump()
+        for choice in chunk.choices or []:
+            finish = choice.finish_reason or finish
+            delta = choice.delta
+            if delta is None:
+                continue
+            if delta.content:
+                parts.append(delta.content)
+                if shown is None and "".join(parts).strip():
+                    shown = not "".join(parts).lstrip().startswith("{")
+                    if shown:
+                        on_text("".join(parts))
+                elif shown:
+                    on_text(delta.content)
+            for tc in delta.tool_calls or []:
+                slot = calls.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
+                if tc.id:
+                    slot["id"] = tc.id
+                fn = tc.function
+                if fn is not None:
+                    slot["name"] += fn.name or ""
+                    slot["arguments"] += fn.arguments or ""
+    tool_calls = [{"id": c["id"] or f"call_{i}", "type": "function",
+                   "function": {"name": c["name"], "arguments": c["arguments"]}}
+                  for i, c in sorted(calls.items())]
+    return {"extra_fields": extra}, "".join(parts), tool_calls, usage, finish, bool(shown)
 
 
 class LLMClient:
@@ -179,33 +234,43 @@ class LLMClient:
         }
         if spec.tools:
             kwargs["tools"] = spec.tools
-            kwargs["tool_choice"] = "auto"
+            kwargs["tool_choice"] = spec.tool_choice
         if extra_body:
             kwargs["extra_body"] = extra_body
         if extra_headers:
             kwargs["extra_headers"] = extra_headers
 
+        if spec.on_text:
+            kwargs["stream"] = True
+            kwargs["stream_options"] = {"include_usage": True}
         started = time.time()
         try:
             raw = self._client.chat.completions.with_raw_response.create(**kwargs)
+            if spec.on_text:
+                streamed = assemble_stream(raw.parse(), spec.on_text)
         except Exception as exc:                    # noqa: BLE001
             self._raise_mapped(exc, spec)
             raise
         elapsed = time.time() - started
 
-        parsed = raw.parse()
-        body = getattr(parsed, "model_extra", None) or {}
+        if spec.on_text:
+            body, text, tool_calls, usage_payload, finish, shown = streamed
+        else:
+            parsed = raw.parse()
+            body = getattr(parsed, "model_extra", None) or {}
+            choice = parsed.choices[0] if parsed.choices else None
+            message = getattr(choice, "message", None)
+            text = (getattr(message, "content", None) or "") if message else ""
+            tool_calls = []
+            for tc in (getattr(message, "tool_calls", None) or []) if message else []:
+                tool_calls.append({
+                    "id": tc.id, "type": "function",
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                })
+            usage_payload = parsed.usage.model_dump() if getattr(parsed, "usage", None) else None
+            finish = getattr(choice, "finish_reason", "") or ""
+            shown = False
         routing, cache, request_id = telemetry.extract(body, raw.headers)
-
-        choice = parsed.choices[0] if parsed.choices else None
-        message = getattr(choice, "message", None)
-        text = (getattr(message, "content", None) or "") if message else ""
-        tool_calls = []
-        for tc in (getattr(message, "tool_calls", None) or []) if message else []:
-            tool_calls.append({
-                "id": tc.id, "type": "function",
-                "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-            })
 
         if not tool_calls and text:
             recovered = recover_text_tool_calls(text)
@@ -216,8 +281,7 @@ class LLMClient:
                     "model": spec.model, "count": len(recovered),
                     "names": [t["function"]["name"] for t in recovered]})
 
-        usage = telemetry.Usage.from_payload(
-            parsed.usage.model_dump() if getattr(parsed, "usage", None) else None)
+        usage = telemetry.Usage.from_payload(usage_payload)
         if usage.total_tokens == 0:
             # Measured: a successful response arrived without a usage block.
             # Estimate (chars / 4) rather than record a free call; flagged
@@ -233,7 +297,7 @@ class LLMClient:
         result = CallResult(
             text=text, tool_calls=tool_calls, usage=usage, routing=routing,
             cache=cache, request_id=request_id, latency_s=elapsed,
-            finish_reason=getattr(choice, "finish_reason", "") or "",
+            finish_reason=finish, streamed=shown and bool(text),
         )
         trace.emit("llm_call", {
             "model_requested": spec.model,
@@ -252,7 +316,8 @@ class LLMClient:
             "request_id": request_id,
             "telemetry_source": result.routing.source,
             "usage_estimated": usage_estimated,
-            "finish_reason": getattr(choice, "finish_reason", "") or "",
+            "finish_reason": finish,
+            "streamed": bool(spec.on_text),
             "tool_calls": [t["function"]["name"] for t in tool_calls],
         })
         return result

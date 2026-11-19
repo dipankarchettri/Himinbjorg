@@ -208,7 +208,7 @@ directory with a per-scenario log, the JSON artifacts, and `SUMMARY.md`.
 
 | Scenario | Script | Make target | Status |
 | --- | --- | --- | --- |
-| 0 unit tests | `bench/test_*.py` | `make test` | 107 passing in the pack (218 today) |
+| 0 unit tests | `bench/test_*.py` | `make test` | 107 passing in the pack (233 today) |
 | 1 token efficiency | `bench/benchmark.py` | `make bench` | 57/70 vs 31/70 passed, 84% fewer tokens per completed task (pooled, table below) |
 | 2 failover | `bench/failover_scenario.py` | `make scenario-failover` | PASS |
 | 3 budget | `bench/budget_scenario.py` | `make scenario-budget` | PASS (synthetic pricing, disclosed); PASS at real Gemini prices with `BUDGET_PRICING=real` |
@@ -298,6 +298,15 @@ call served from the gateway cache by exact hash.
 evidence/scenario1-benchmark-20261119-104400.json
 evidence/scenario1-benchmark-20261119-121511.json`; why two packs, and where
 optimized costs more, is in `docs/VERIFIED.md`.
+
+**On a paid cloud model** (Claude Haiku 5.5 through OpenRouter, same tasks,
+10 runs per arm, three arms, 2026-11-19): gateway-priced dollars per
+completed task $0.00978 naive, $0.00287 optimized (71% cheaper), $0.00171
+keepctx (82% cheaper; every lever on, context kept verbatim for the prompt
+cache and summarised near the budget). Reproduce with `python bench/pool.py
+--latest-wins evidence/scenario1-benchmark-20261119-204844.json
+evidence/scenario1-benchmark-20261119-221735.json
+evidence/scenario1-benchmark-20261119-222203.json`.
 
 No per-lever ranking is claimed: two ablations (one lever off at a time)
 could not separate individual levers from sampling noise at 3 repeats, so

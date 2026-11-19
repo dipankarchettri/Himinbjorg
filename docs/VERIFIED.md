@@ -907,7 +907,7 @@ What this shows, and what it does not:
 
 Evidence: `evidence/scenario3b-ladder-20261118-232320.json`.
 
-## Found by the Day 3 runs, fixed (2026-11-18)
+## Found by the QuixBugs and ladder runs, fixed (2026-11-18)
 
 - **A rate limit burned every turn.** On a 429 the loop printed
   "retrying once" and retried on every turn with no wait. When the demo
@@ -1024,8 +1024,8 @@ limit. Evidence: `evidence/scenario1-benchmark-20261119-012654.json`.
 - **Optimized used more tokens on 7 of 28 programs**: lis 77% more,
   next_permutation 16%, rpn_eval 13%, bitcount 7%, max_sublist_sum 6%,
   shunting_yard 4%. On lis, Gemma re-reads `lis.py` while it can still
-  see it; each re-read is a turn. Left open for the Day 5 turn work
-  rather than tuned here.
+  see it; each re-read is a turn. Left open for later work on wasted
+  turns rather than tuned here.
 - **What this does not measure.** Every tier is the same model, so
   routing saves nothing here (the naive arm sends everything to T2, the
   optimized arm to T0, both Gemma). The 23.6% comes from the other
@@ -1112,8 +1112,141 @@ What this says:
   against 7). shop_freeship: pruning elides `orders.py` after three
   turns and the model reads it again, four times in a run, about 3,000
   tokens each, so optimized runs take 17 or 18 turns where naive often
-  takes 7. Keeping the file being edited in context is a Day 5 change,
-  measured there, not tuned inside this measurement.
+  takes 7. Keeping the file being edited in context is a later change,
+  measured separately, not tuned inside this measurement.
 - Gemma under vLLM is low-entropy: naive add_power used between 9,876
   and 9,956 tokens in all 10 runs. Ten repeats are fewer independent
   samples than the count suggests.
+
+---
+
+## Wasted turns, streaming, and cost on a caching provider (2026-11-19)
+
+### What changed
+
+From the traces of the 10-run Gemma benchmark above (140 runs):
+
+- **A successful `apply_patch` returns the file as it is now** (whole up
+  to the read limit, else the changed lines and 10 either side), with
+  the file-memory lever on. Before, the patch superseded the earlier
+  read and showed nothing, so the model guessed its next `find` (failed
+  in 8 of 10 add_power runs) or read the file again: every patch of
+  `orders.py` on shop_freeship was followed by a re-read.
+- **Superseding matches the path as a whole name.** A patch of `calc.py`
+  also hid the read of `test_calc.py`, a substring.
+- **The listing says it is complete**, and the prompt asks for several
+  reads in one reply: 83 of about 140 runs opened with `list_dir` of a
+  root already listed in the prompt.
+- **Not built: running reads in parallel.** Gemma asked for more than
+  one tool in 4 of 2,670 turns, and a local read takes milliseconds
+  against a median 0.85 s per model call.
+- **Streaming** in the CLI (on a terminal) and the VS Code panel
+  (`delta` events). Checked against the gateway first: routing headers,
+  the final chunk's `usage`, and `cache_debug` (a direct-cache hit
+  included) all arrive on a streamed call. The benchmark does not
+  stream.
+
+From the opencode review (github.com/anomalyco/opencode at 0a297bf):
+
+- **A handover at the turn limit:** one last call with tools declared
+  but `tool_choice: "none"`, asking what was done, what is left, and
+  what to do next. Checked live: Gemma through the gateway answers in
+  text with tool calls in the history. On Haiku, all 12 runs that hit
+  the 18-turn limit ended with that summary.
+- **Edit matching reads typographic quotes and dashes as plain ones.**
+- **The whole-file limit follows the context budget** (a quarter of it,
+  28,000 characters by default). No own task has a file over the old
+  12,000, so this is measured on SWE-bench, not here.
+- **A third arm, `keepctx`:** every lever on, but the pruning lever keeps
+  the context verbatim (`AGENT_PRUNE_MODE=budget`), so each request
+  extends the cached prefix of the last, and replaces older turns with a
+  structured summary only near the budget. On the own tasks the context
+  never got there: no compaction fired.
+
+### Gemma 31B, before and after (5 of 7 tasks)
+
+`evidence/scenario1-benchmark-20261119-200132.json`, 10 runs per arm,
+against the pooled 10-run Gemma results above. The other two tasks are void: the model server
+went down mid-run, outside the benchmark, so all shop_freeship runs and
+12 shop_rename runs got no answer (recorded as 0 tokens), and a rerun
+was cut short the same way.
+
+```
+                 passed         median turns          tokens per completed task
+                 (each column: before > after)
+zero_check       naive 10>10    6 > 4                 7,419 >  5,516
+                 opt   10>10    5 > 4                 6,751 >  6,189
+add_power        naive 10>10    7 > 6                 9,926 >  7,921
+                 opt   10>10   10 > 7                14,116 >  9,930
+rename_symbol    naive 10>10   14 > 7                24,832 > 16,620
+                 opt   10>10   11 > 6.5              16,866 >  8,668
+docstring        naive  5>7     4 > 3                10,088 >  5,575
+                 opt    6>4     4 > 3                 9,042 >  9,107
+shop_bulk_bug    naive 10>10    7 > 7                16,884 > 17,105
+                 opt   10>10    7 > 7                14,778 > 16,119
+```
+
+Median turns fell on 9 of the 10 cells and held on the tenth; median
+wall time fell on 8. The prompt changes apply to both arms, so the
+baseline improved too. docstring is a grading artifact: the grader wants
+a docstring of 15 characters or more, and "Divide a by b." has 14.
+
+### Claude Haiku 5.5, three arms, 10 runs per task
+
+Every tier `openrouter/anthropic/claude-haiku-5.5`, temperature 0.7, key
+`sk-bf-bench-cloud-key` (OpenRouter only, so no call can fall back to a
+local model). `evidence/scenario1-benchmark-20261119-204844.json`, with
+add_power and rename_symbol for the two levers-on arms rerun after the
+two fixes below (`...-221735.json`, `...-222203.json`); pooled with
+`python bench/pool.py --latest-wins` over the three. Every request was
+priced by the gateway (no run had an unpriced request); $1.06 in all.
+
+```
+                    passed              tokens per completed task         dollars per completed task
+task          naive  opt  keepctx     naive     opt   keepctx        naive     opt      keepctx
+zero_check    10/10  9/10  10/10      8,233  13,260    11,319      0.00111  0.00086   0.00053
+add_power     10/10 10/10  10/10     11,677  13,358    13,518      0.00161  0.00117   0.00090
+rename_symbol 10/10 10/10  10/10     15,309  21,823    18,945      0.00219  0.00187   0.00124
+docstring     10/10 10/10  10/10     10,009  10,159     8,952      0.00143  0.00083   0.00062
+shop_bulk_bug 10/10 10/10  10/10     11,756  12,626    18,546      0.00157  0.00085   0.00077
+shop_rename   10/10 10/10  10/10     92,945  15,441    11,638      0.01429  0.00091   0.00048
+shop_freeship  8/10  8/10   9/10    323,169 183,738   191,080      0.05537  0.01600   0.00809
+ALL           68/70 67/70  69/70     60,068  34,676    36,940      0.00978  0.00287   0.00171
+```
+
+- **On a provider with a prompt cache, tokens and dollars disagree.**
+  optimized and keepctx save about the same tokens (42% and 38%), but
+  keepctx is 82.5% cheaper than naive and optimized 70.7%. Pruning
+  rewrites earlier messages, so less of each request is a cache read
+  (billed at a tenth). In the first pack, keepctx read 2.2M of its 2.6M
+  prompt tokens from cache, optimized 1.5M of 2.4M. Both levers-on
+  arms are cheaper than naive on every task, and keepctx is cheapest on
+  every task.
+- **On small tasks the levers cost tokens on Haiku.** A strong model
+  needs a median 4 turns naive; optimized uses more tokens than naive
+  on five of the seven tasks and keepctx on four. Where those tokens go
+  is not yet broken down. They still cost less in dollars, because the naive arm
+  has no prompt caching (the cache lever is off).
+- The tokens-only headline would have hidden this. The README's
+  headline is still tokens on a local model; dollars are what a cloud
+  user pays.
+
+### Found by the Haiku run, fixed
+
+- **A new top-level function was nested by the indentation fix-up**
+  (`agent/tools/write.py`, `_match_indent`). The model patched
+  `return a / b` with the same line plus `def power` at column 0; the
+  fix-up shifted every line to the indentation of `return`, so `power`
+  landed inside `divide`. It parsed, so the model saw it only on reading
+  back, and spent up to 11 more turns. With the block already at the
+  file's indentation, the first line got a second indent and the patch
+  was refused. Now a block already at the right indentation is left
+  alone, and a `def`/`class`/decorator at column 0 after the first line
+  stays there. add_power, optimized: 30,577 -> 13,358 tokens per
+  completed task, median turns 6.5 -> 4, $0.00290 -> $0.00117.
+- **`rename_symbol` reported only counts**, so the model grepped for the
+  old name, found `test_multiply` (not a whole-word match), and then
+  re-read every file to check. The result now shows the changed lines
+  and any text that still contains the old name. rename_symbol,
+  optimized: 28,264 -> 21,823 tokens, median turns 7 -> 5.5; keepctx
+  25,660 -> 18,945.
