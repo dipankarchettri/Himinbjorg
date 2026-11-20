@@ -844,3 +844,12 @@ def test_a_greeting_with_a_request_is_a_task(repo):
     agent, client = make_agent(repo, [([], "Fixed.")])
     agent.run("hi, fix divide() in calc.py")
     assert len(client.specs) >= 1
+
+
+def test_the_activity_line_stays_on_one_line_for_a_multiline_command():
+    # The CLI and the VS Code panel both parse this line.
+    line = Agent._activity("run_command", {"command": ["python", "-c", "import click\n@click.command()\ndef cli(): pass"]},
+                           True, "ok")
+    assert "\n" not in line
+    assert line.startswith("  . run_command python -c import click @click.command()")
+    assert line.endswith("[ok]")

@@ -974,7 +974,10 @@ task in this reply."""
         target = (args.get("_rel") or args.get("pattern") or args.get("old")
                   or args.get("operation") or args.get("query") or "")
         if name == "run_command" and isinstance(args.get("command"), list):
-            target = " ".join(args["command"])[:60]
+            target = " ".join(args["command"])
+        # One line: a multi-line `python -c` script would break it, and the
+        # CLI and the VS Code panel both parse this line.
+        target = " ".join(str(target).split())[:60]
         first = (content.splitlines() or [""])[0][:70]
         mark = "ok" if ok else "failed"
         return f"  . {name} {target}  [{mark}] {first if not ok or name in policy.EDIT_TOOLS else ''}".rstrip()
