@@ -100,6 +100,15 @@ make agent TASK="what does divide() do wrong?" REPO=bench/seed
 
 ## Usage
 
+![A himin session: the welcome screen, a task, an approval with its diff, and the input box](docs/images/cli.png)
+
+`himin` opens with the repository, mode, models, sandbox and budget,
+then a bordered input box: Enter sends, Alt+Enter or a trailing `\`
+starts a new line, ↑ recalls an earlier task, Ctrl-C clears the box and
+Ctrl-D quits. Each tool call is one line with its result under it, and
+an approval shows the exact diff in colour. A greeting gets a reply
+without a model call.
+
 In a session each task continues the same conversation, so "now add a
 test for it" has the context. The conversation is saved after every turn,
 so after a crash or a closed terminal `himin --resume` continues it, and
@@ -108,6 +117,7 @@ each task ends with its tokens and gateway-priced cost.
 
 | Command | Effect |
 | --- | --- |
+| `/help` | List these commands |
 | `/cost` | Session token and cost totals |
 | `/undo` | Revert the agent's most recent edit (a whole rename counts as one); refused if you changed the file since |
 | `/reset` | Start a fresh conversation, dropping the saved one |
@@ -124,23 +134,37 @@ each problem. `--no-models` skips the model requests.
 
 ### VS Code
 
+Install `himinbjorg.vsix` from the
+[releases](https://github.com/dipankarchettri/Himinbjorg/releases), or
+build it from a clone:
+
 ```sh
 make extension                                   # builds extension/himinbjorg.vsix
 code --install-extension extension/himinbjorg.vsix
 ```
 
-Or install `himinbjorg.vsix` from the
-[releases](https://github.com/dipankarchettri/Himinbjorg/releases). Open
-and trust a repository, then click the Himinbjorg icon in the activity
-bar. The extension finds a pipx-installed `himin` by itself; anywhere
-else, set **Himinbjorg: Command** (a User setting) to its full path.
+Open and trust a repository, then click the Himinbjorg icon in the
+activity bar. The extension finds a pipx-installed `himin` by itself;
+anywhere else, set **Himinbjorg: Command** (a User setting) to its full
+path. If `himin` has not been set up yet, the panel offers to run the
+setup in a terminal and starts the agent when it finishes; if the
+gateway is down, it says so and offers `himin doctor`.
 
-![An edit waiting for approval: the exact diff beside a modal dialog](docs/images/vscode-approval.png)
+![The Himinbjorg panel in VS Code after a fix: tool steps, approvals, the answer and its cost](docs/images/vscode-panel.png)
 
-Approvals come only from native modal dialogs, never from the chat view
-that shows model text. Failover and budget changes appear as
-notifications, and the status bar shows the session's cost. More in
-[extension/README.md](extension/README.md).
+The panel shows the mode, the models and a budget bar along the top, and
+undo, cost and new-conversation buttons. Each tool call is one line with
+a green or red dot and its result; answers are formatted, with a copy
+button on code. Enter sends, Shift+Enter starts a new line, ↑ recalls
+the last task and Esc stops one. It follows your theme, light, dark or
+high contrast.
+
+![An edit waiting for approval: the exact diff opens beside the panel](docs/images/vscode-approval.png)
+
+Approvals come only from native modal dialogs, never from the panel that
+shows model text, and the exact diff opens beside the dialog. Failover
+and budget changes appear as notifications, and the status bar shows the
+session's cost. More in [extension/README.md](extension/README.md).
 
 ## How it works
 
