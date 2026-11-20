@@ -296,6 +296,17 @@ EDIT_TOOLS = ("apply_patch", "write_file", "rename_symbol")
 _operator: Callable[[dict], tuple[str, str]] | None = None
 
 
+# How the terminal prompt is drawn (agent/terminal.py), set by the CLI on a
+# colour terminal. Presentation only: it receives the prompt the gate built
+# and returns the same words, styled; it cannot change the answer.
+_style_prompt: Callable[[str], str] | None = None
+
+
+def set_prompt_style(fn: Callable[[str], str] | None) -> None:
+    global _style_prompt
+    _style_prompt = fn
+
+
 def set_operator_channel(fn: Callable[[dict], tuple[str, str]] | None) -> None:
     global _operator
     _operator = fn
@@ -366,7 +377,8 @@ def gate(spec: ToolSpec, resolved_args: dict, *, auto_approve: bool = False,
         })
         answer = (answer or "").strip().lower()
     else:
-        answer, failure = _read_tty_response("\n".join(lines))
+        text = "\n".join(lines)
+        answer, failure = _read_tty_response(_style_prompt(text) if _style_prompt else text)
     approve_all = edit and answer in ("a", "all")
     approved = answer in ("y", "yes") or approve_all
     if failure:

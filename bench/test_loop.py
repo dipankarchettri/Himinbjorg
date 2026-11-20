@@ -830,3 +830,17 @@ def test_an_edit_request_still_gets_the_no_edit_nudge(repo):
     agent, client = make_agent(repo, [([], "I will add a zero check."), ([], "done")])
     agent.run("add a zero check to divide()")
     assert len(client.specs) == 2
+
+
+def test_a_greeting_gets_a_reply_and_no_model_call(repo):
+    # Found by hand: "hi" was taken as a task and the agent went to fix a bug.
+    agent, client = make_agent(repo, [([], "unused")])
+    for text in ("hi", "Hello!", "thanks", "good morning", "ok"):
+        assert agent.run(text)
+    assert client.specs == []
+
+
+def test_a_greeting_with_a_request_is_a_task(repo):
+    agent, client = make_agent(repo, [([], "Fixed.")])
+    agent.run("hi, fix divide() in calc.py")
+    assert len(client.specs) >= 1

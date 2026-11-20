@@ -125,6 +125,26 @@ def announces_next_step(text: str) -> bool:
     return bool(_NEXT_STEP.search(last)) and not _SUMMARY_OPENER.search(last)
 
 
+# A message that is only a greeting or thanks. "hi" is not a question, so
+# is_mutating() called it a task, and the model went looking for a bug to fix
+# (found by hand in the CLI). These get a fixed reply and no model call.
+_SMALL_TALK = re.compile(
+    r"^\s*(hi+|hey+|hello+|yo|hiya|howdy|good (morning|afternoon|evening)|thanks?( you)?|"
+    r"thx|ty|cheers|ok(ay)?|cool|great|nice)( there| again| so much| a lot)?\s*[.!]*\s*$", re.I)
+
+
+def small_talk_reply(task: str) -> str | None:
+    """The fixed reply to a bare greeting or thanks, or None for a real message."""
+    if not _SMALL_TALK.match(task or ""):
+        return None
+    if re.match(r"\s*(thanks?|thx|ty|cheers)", task, re.I):
+        return "You're welcome. What's next?"
+    if re.match(r"\s*(ok|okay|cool|great|nice)", task, re.I):
+        return "Say what you would like me to do next."
+    return ("Hello. Tell me what to do in this repository: fix a failing test, add a "
+            "feature, explain some code. I ask before any edit or command.")
+
+
 def is_mutating(task: str) -> bool:
     """Withhold write tools only from tasks that are plainly questions.
 
@@ -313,6 +333,9 @@ class Agent:
         """
         base = self._turn_base
         self.answer_streamed = False
+        reply = small_talk_reply(task)
+        if reply is not None:
+            return reply
         if not self.ledger.entries:
             self._manifest_text = self._manifest()
             self.ledger.append(LedgerEntry(base, "system",
