@@ -53,7 +53,10 @@ wheel, compiles and packages the extension, and validates the Compose
 file, on every push and pull request. Checks that need a live gateway and
 a model (`make extension-test`, `make bench`, `make proof`) run locally.
 Pushing a `v*` tag builds the wheel, sdist and VSIX and attaches them to a
-GitHub Release. Dependabot keeps Python, npm, Actions and Compose
+GitHub Release. The agent and the extension share one version: set it in
+`pyproject.toml` and with `npm version <x.y.z> --no-git-tag-version` in
+`extension/`, then tag `v<x.y.z>`. `bench/check_versions.py`, run by CI
+and the release workflow, fails when they disagree. Dependabot keeps Python, npm, Actions and Compose
 dependencies current.
 
 ## Project layout

@@ -165,8 +165,17 @@ def is_confidential(repo_root: Path, flag: bool) -> bool:
     return bool(flag) or (repo_root / CONFIDENTIAL_MARKER).exists()
 
 
+def _version() -> str:
+    from importlib.metadata import PackageNotFoundError, version
+    try:
+        return version("himinbjorg")
+    except PackageNotFoundError:        # run from a checkout without installing
+        return "unknown"
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="himin", description="Himinbjorg: token-efficient coding agent on Bifrost")
+    p.add_argument("--version", action="version", version=f"himin {_version()}")
     p.add_argument("task", nargs="?", help="Task description. Omit for an interactive REPL. "
                                            "`himin doctor` checks the setup instead.")
     p.add_argument("--repo", default=".", help="Repository root the agent may touch")

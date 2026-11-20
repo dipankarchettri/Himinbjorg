@@ -55,7 +55,8 @@ jobs:
         run: python -m pip check
 
       # testpaths in pyproject.toml covers security, edit tools, task
-      # checkers, the agent loop, the editor server and config parsing.
+      # checkers, the agent loop, the editor server, config parsing,
+      # the sandbox and himin doctor.
       # No gateway, model, key or Docker daemon is needed.
       - name: Unit tests
         run: python -m pytest -q
@@ -66,6 +67,10 @@ jobs:
       - name: Re-summarise the committed evidence
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
         run: python bench/pool.py
+
+      - name: One version for the agent and the extension
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        run: python bench/check_versions.py
 
   package:
     name: Python package

@@ -211,7 +211,7 @@ class Doctor:
 
     def run(self) -> int:
         s = self.settings
-        self.out("\n  Himinbjorg doctor\n")
+        self.out(f"\n  Himinbjorg doctor (himin {config_mod._version()})\n")
         self.out(f"  {'':5} {'repository':17} {s.repo_root} ({self.privacy.describe()})")
         self.python()
         self.settings_files()
