@@ -41,6 +41,10 @@ button { font: inherit; color: inherit; }
 .brand { display: flex; align-items: center; gap: 7px; font-weight: 600; letter-spacing: 0.2px; }
 .brand .logo { color: var(--amber); width: 18px; height: 18px; }
 .spacer { flex: 1; }
+@media (max-width: 250px) {
+  .brand span { display: none; }
+  #bar { gap: 4px; padding-right: 6px; }
+}
 .chip {
   display: inline-flex;
   align-items: center;
@@ -52,8 +56,10 @@ button { font: inherit; color: inherit; }
   color: var(--muted);
   border: 1px solid var(--border);
 }
+#bar .chip { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; }
 .chip.lock { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 55%, transparent); }
 button.tool {
+  flex: none;
   display: grid;
   place-items: center;
   width: 26px;
@@ -139,7 +145,6 @@ button.suggest:hover { border-color: var(--vscode-focusBorder); }
   white-space: pre-wrap;
 }
 .msg.answer { margin: 6px 0 6px; }
-.msg.answer.live { white-space: pre-wrap; }
 .msg.answer p { margin: 0 0 8px; white-space: pre-wrap; }
 .msg.answer h4 { margin: 10px 0 4px; font-size: 1em; }
 .msg.answer ul, .msg.answer ol { margin: 0 0 8px; padding-left: 20px; }
@@ -151,7 +156,8 @@ button.suggest:hover { border-color: var(--vscode-focusBorder); }
   border-radius: 4px;
   background: var(--vscode-textCodeBlock-background, var(--raised));
 }
-.msg.thought { margin: 4px 0; color: var(--muted); white-space: pre-wrap; font-size: 0.95em; }
+.msg.answer.thought { margin: 4px 0; color: var(--muted); font-size: 0.95em; }
+.msg.answer.thought p { margin: 0 0 4px; }
 .code {
   margin: 6px 0 10px;
   border: 1px solid var(--border);
@@ -260,6 +266,7 @@ textarea {
   min-height: 38px;
   max-height: 220px;
   resize: none;
+  overflow-y: hidden;
   border: 0;
   outline: none;
   padding: 9px 11px 2px;
@@ -268,7 +275,12 @@ textarea {
   font: inherit;
   line-height: 1.45;
 }
-textarea::placeholder { color: var(--vscode-input-placeholderForeground, var(--muted)); }
+textarea::placeholder {
+  color: var(--vscode-input-placeholderForeground, var(--muted));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .box-bar { display: flex; align-items: center; gap: 6px; padding: 3px 6px 6px 11px; }
 .hint { flex: 1; font-size: 0.8em; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 button.round {

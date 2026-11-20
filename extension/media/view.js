@@ -7,6 +7,7 @@
   const log = $("log");
   const form = $("composer");
   const input = $("input");
+  const PLACEHOLDER = input.placeholder;
   const send = $("send");
   const stop = $("stop");
   const history = [];
@@ -189,13 +190,13 @@
       live.dataset.raw = "";
     }
     live.dataset.raw += text;
-    live.textContent = live.dataset.raw;
+    markdown(live, live.dataset.raw);
     scroll();
   }
 
   function endLive() {
     // Text the model wrote before calling a tool: shown as a step, not the answer.
-    live.className = "msg thought";
+    live.className = "msg answer thought";
     live = null;
   }
 
@@ -329,6 +330,7 @@
   function grow() {
     input.style.height = "auto";
     input.style.height = Math.min(input.scrollHeight, 220) + "px";
+    input.style.overflowY = input.scrollHeight > 220 ? "auto" : "hidden";
   }
 
   function submit() {
@@ -389,8 +391,7 @@
         busy = !!text;
         send.hidden = busy;
         stop.hidden = !busy;
-        input.placeholder = busy ? "Working... Esc or the stop button stops it"
-          : "Ask Himinbjorg to explain, fix or change something";
+        input.placeholder = busy ? "Working… Esc to stop" : PLACEHOLDER;
         if (!busy) setThinking(false);
         else if (!live) setThinking(true);
         return;

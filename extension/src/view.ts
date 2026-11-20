@@ -135,7 +135,7 @@ export class ChatView implements vscode.WebviewViewProvider {
 </main>
 <form id="composer">
   <div class="box">
-    <textarea id="input" rows="1" placeholder="Ask Himinbjorg to explain, fix or change something" aria-label="Task"></textarea>
+    <textarea id="input" rows="1" placeholder="Ask a question or describe a change" aria-label="Task"></textarea>
     <div class="box-bar">
       <span class="hint">Enter to send · Shift+Enter for a new line</span>
       <button type="submit" id="send" class="round primary" title="Send" aria-label="Send">${icon("send")}</button>
