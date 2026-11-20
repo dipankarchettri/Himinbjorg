@@ -123,3 +123,14 @@ def test_a_streamed_answer_wraps_between_words(monkeypatch):
     assert "ZeroDivisionError." in plain(out.getvalue()).split()
     assert lines[-1] == "Done"
     assert " ".join(plain(out.getvalue()).replace("●", "").split()) == " ".join(text.split())
+
+
+def test_streamed_text_ends_with_its_last_word_before_an_approval():
+    import io
+    from agent import main as main_mod
+    out = io.StringIO()
+    live = main_mod.LiveText(out=out, styled=True)
+    live.text("I'll reproduce it before editing.")
+    live.end_text()                             # what the approval prompt calls first
+    out.write("APPROVAL")
+    assert plain(out.getvalue()).endswith("before editing.\nAPPROVAL")

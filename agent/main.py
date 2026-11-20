@@ -107,7 +107,11 @@ def main(argv: list[str] | None = None) -> int:
                            (lambda *a: notes.append(" ".join(map(str, a)).strip())) if styled
                            else print)
     if styled:
-        policy.set_prompt_style(terminal.style_approval)
+        def approval(text: str) -> str:
+            if live:
+                live.end_text()       # an approval is printed outside LiveText
+            return terminal.style_approval(text)
+        policy.set_prompt_style(approval)
         print(welcome(settings, privacy, quota, "  ".join(notes)) if not task
               else terminal.dim(f"\n  Himinbjorg  ·  {settings.repo_root}  ·  {privacy.describe()}\n"))
 
@@ -178,13 +182,17 @@ class LiveText:
             self.word = ""
             self.out.flush()
 
-    def line(self, *args, **kwargs) -> None:
+    def end_text(self) -> None:
+        """Close the text so far, before anything else is printed."""
         self.finish()
         if self.mid_line:
             self.out.write("\n")
             self.mid_line = False
         self.answering = False
         self.col = 0
+
+    def line(self, *args, **kwargs) -> None:
+        self.end_text()
         if self.styled:
             args = tuple(terminal.style_line(str(a)) for a in args)
         print(*args, file=self.out, **kwargs)
