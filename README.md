@@ -116,7 +116,7 @@ make agent TASK="what does divide() do wrong?" REPO=bench/seed
 
 ## Usage
 
-![himin fixing a real click bug with Claude Haiku: it finds the cause, shows the diff for approval, runs the tests and explains the fix, for $0.0027](docs/images/cli.png)
+![himin fixing a real click bug with Claude Haiku: it finds the cause, shows the diff for approval, runs the tests and explains the fix, for $0.0025](docs/images/cli.png)
 
 *A real session on [click](https://github.com/pallets/click) at the
 commit before its maintainers fixed
@@ -126,8 +126,10 @@ their test for it and the rest of click's suite, 1,631 tests in all.*
 `himin` opens with the repository, mode, models, sandbox and budget,
 then a bordered input box: Enter sends, Alt+Enter or a trailing `\`
 starts a new line, ↑ recalls an earlier task, Ctrl-C clears the box and
-Ctrl-D quits. Each tool call is one line with its result under it, and
-an approval shows the exact diff in colour. A greeting gets a reply
+Ctrl-D quits. Each tool call is one line with its result under it, an
+approval shows the exact diff in colour, and answers are formatted as
+they stream: code in colour, bold, lists and code blocks, without the
+Markdown marks (piped output keeps them). A greeting gets a reply
 without a model call.
 
 In a session each task continues the same conversation, so "now add a
