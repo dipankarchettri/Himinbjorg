@@ -118,6 +118,7 @@ class CallSpec:
     # is streamed; never part of the request itself.
     on_text: "Callable[[str], None] | None" = None
     tool_choice: str = "auto"       # "none": tools declared but not to be called
+    reasoning_effort: str = ""      # low | medium | high, or "" for the model's default
 
 
 @dataclass
@@ -229,6 +230,9 @@ class LLMClient:
         extra_body: dict[str, Any] = {}
         if spec.fallbacks:
             extra_body["fallbacks"] = spec.fallbacks
+        if spec.reasoning_effort:
+            # Bifrost's form; it sends OpenRouter reasoning_effort.
+            extra_body["reasoning"] = {"effort": spec.reasoning_effort}
 
         extra_headers: dict[str, str] = {}
         # Caching is opt-in per request: without x-bf-cache-key the gateway

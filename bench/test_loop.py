@@ -585,13 +585,36 @@ def test_a_repeated_read_gets_the_stub_once_then_the_file(repo):
 
 def test_no_stub_once_the_earlier_result_has_been_pruned(repo):
     # The stub says the result is earlier in the conversation. Once pruning
-    # has elided it, that is false, so the call just runs.
+    # has elided it, that is false, so the call just runs. (An edit task:
+    # a read-only one keeps its reads, below.)
     read = lambda: ([call("read_file", path="calc.py")], "")   # noqa: E731
     other = [([call("grep", pattern=f"x{i}")], "") for i in range(6)]
-    agent, _ = make_agent(repo, [read(), *other, read(), ([], "done")])
+    agent, _ = make_agent(repo, [read(), *other, read(), ([], "done"), ([], "done")])
     assert agent.ledger.pruning_enabled
-    assert agent.run("explain calc.py") == "done"
+    assert agent.run("fix calc.py") == "done"
     assert not any("identical call already made" in r for r in tool_results(agent))
+
+
+def test_a_read_only_task_keeps_its_file_reads_to_the_answer(repo):
+    # Pruning them saved tokens on edits and wasted them on reviews: the
+    # model read the file again, a whole call each time.
+    read = lambda: ([call("read_file", path="calc.py")], "")   # noqa: E731
+    other = [([call("grep", pattern=f"x{i}")], "") for i in range(6)]
+    agent, client = make_agent(repo, [read(), *other, ([], "done")])
+    agent.run("review calc.py")
+    tools = [m["content"] for m in client.specs[-1].messages if m["role"] == "tool"]
+    assert "def divide" in tools[0]                               # the read, whole
+    assert tools[1].startswith("[elided")                         # a search, pruned as before
+
+
+def test_reads_kept_for_a_question_are_pruned_once_an_edit_starts(repo):
+    read = lambda: ([call("read_file", path="calc.py")], "")   # noqa: E731
+    other = [([call("grep", pattern=f"x{i}")], "") for i in range(7)]
+    agent, client = make_agent(repo, [read(), ([], "It divides."), *other, ([], "done"), ([], "done")])
+    agent.run("what does calc.py do?")
+    agent.run("fix calc.py")
+    tools = [m["content"] for m in client.specs[-1].messages if m["role"] == "tool"]
+    assert tools[0].startswith("[elided")
 
 
 class FallbackClient(FakeClient):
@@ -989,7 +1012,7 @@ def test_a_search_repeated_after_an_edit_runs_again(repo):
 
 def test_the_answer_call_sees_what_pruning_had_elided(repo):
     reads = [([call("grep", pattern=f"x{i}")], "") for i in range(20)]
-    agent, client = make_agent(repo, [([call("read_file", path="calc.py")], ""),
+    agent, client = make_agent(repo, [([call("grep", pattern="def divide")], ""),
                                       *reads[:Agent.ANSWER_NOW - 1], ([], "The review.")])
     agent.settings = __import__("dataclasses").replace(agent.settings, max_turns=25)
     assert agent.run("Review my uncommitted changes") == "The review."
@@ -1072,3 +1095,60 @@ def test_a_forced_answer_cut_by_the_limit_is_continued(repo):
     assert "cut off" in client.specs[-1].messages[-1]["content"]
     assert [e.content for e in agent.ledger.entries if e.role == "assistant"][-2:] == \
         ["1. ledger.py: the count", "grows on every render."]
+
+
+def test_a_read_only_task_prunes_reads_of_files_it_does_not_name(repo):
+    (repo / "other.py").write_text("x = 1\n")
+    read = lambda p: ([call("read_file", path=p)], "")   # noqa: E731
+    other = [([call("grep", pattern=f"x{i}")], "") for i in range(6)]
+    agent, client = make_agent(repo, [read("calc.py"), read("other.py"), *other, ([], "done")])
+    agent.run("review calc.py")
+    tools = [m["content"] for m in client.specs[-1].messages if m["role"] == "tool"]
+    assert "def divide" in tools[0] and tools[1].startswith("[elided")
+
+
+def test_a_forced_answer_with_no_text_is_asked_for_once_more(repo):
+    reads = [([call("grep", pattern=f"x{i}")], "") for i in range(Agent.ANSWER_NOW)]
+    agent, client = make_agent(repo, [*reads, ([], "", "stop"), ([], "The review.", "stop")])
+    agent.settings = __import__("dataclasses").replace(agent.settings, max_turns=25)
+    assert agent.run("Review my uncommitted changes") == "The review."
+    assert "no text" in client.specs[-1].messages[-1]["content"]
+
+
+def test_reasoning_effort_goes_to_cloud_models_only(repo):
+    import dataclasses
+    agent, client = make_agent(repo, [([], "It divides.")])
+    _cloud(agent)
+    agent.settings = dataclasses.replace(agent.settings, reasoning_effort="low")
+    agent.run("what does divide do?")
+    assert client.specs[0].reasoning_effort == "low"
+    local, lclient = make_agent(repo, [([], "It divides.")])
+    local.settings = dataclasses.replace(local.settings, reasoning_effort="low")
+    local.run("what does divide do?")
+    assert lclient.specs[0].reasoning_effort == ""
+
+
+def test_reasoning_effort_is_sent_in_bifrosts_form(monkeypatch):
+    from types import SimpleNamespace
+    from agent import llm as llm_mod
+    sent = {}
+
+    class Raw:
+        def parse(self):
+            msg = SimpleNamespace(content="ok", tool_calls=None)
+            return SimpleNamespace(choices=[SimpleNamespace(message=msg, finish_reason="stop")],
+                                   usage=None, model_extra={})
+        headers = {}
+
+    client = llm_mod.LLMClient.__new__(llm_mod.LLMClient)
+    client.settings = SimpleNamespace(levers=SimpleNamespace(cache=False), bifrost_base_url="http://x")
+    client.privacy = SimpleNamespace(assert_egress=lambda *a: None, cache_enabled=False)
+    client.vk = "k"
+    client._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
+        with_raw_response=SimpleNamespace(create=lambda **kw: (sent.update(kw), Raw())[1]))))
+    try:
+        client.call(llm_mod.CallSpec(messages=[{"role": "user", "content": "hi"}], model="m",
+                                     reasoning_effort="low"))
+    except Exception:                   # noqa: BLE001 - only the request matters here
+        pass
+    assert sent["extra_body"]["reasoning"] == {"effort": "low"}

@@ -125,6 +125,17 @@ _NEXT_STEP = re.compile(
 _SUMMARY_OPENER = re.compile(r"\blet'?s (recap|summari[sz]e|review what)", re.I)
 
 
+def named_paths(task: str) -> tuple[str, ...]:
+    """Files a task names: "review agent/llm.py and ledger.py." gives
+    ("agent/llm.py", "ledger.py")."""
+    out = []
+    for word in re.findall(r"[\w./-]+", task or ""):
+        word = os.path.normpath(word.rstrip(".,"))
+        if word not in (".", "..") and re.search(r"\.[A-Za-z]\w{0,9}$", word):
+            out.append(word)
+    return tuple(out)
+
+
 def announces_next_step(text: str) -> bool:
     """Does a reply end by promising an action instead of reporting one?"""
     tail = (text or "").strip()[-240:]
@@ -236,7 +247,7 @@ class Agent:
         by_turns = settings.levers.pruning and self.ledger.mode == "turns"
         self.files = FileMemory(
             enabled=settings.levers.file_memory,
-            horizon=self.ledger.horizon if by_turns else None)
+            horizon=self.ledger.read_horizon if by_turns else None)
         self.stats = LoopStats()
         self._last_provider: str | None = None
         self._seen_tool_calls: dict[str, tuple[int, str]] = {}   # sig -> (turn, head)
@@ -399,6 +410,8 @@ class Agent:
     def _run_task(self, task: str, base: int) -> str:
 
         mutating = is_mutating(task)
+        self.ledger.keep_reads_from = None if mutating else base
+        self.ledger.keep_paths = named_paths(task)
         self._git_allowed = bool(GIT_HINT.search(task))
         # Not beside git_op, which does the same reads and more.
         self._git_read_allowed = (bool(CHANGES_HINT.search(task))
@@ -747,6 +760,7 @@ task in this reply."""
             turn, "user", "Stop reading. Answer the task now, completely, from what you have "
                           "found. Say what you could not check."))
         text = piece = ""
+        asked_again = False
         # Everything it read, not the pruned view, fitted to the context
         # window: one call, so worth it. Found: a review said it could not
         # check requires-python because its read of pyproject.toml was elided.
@@ -772,6 +786,14 @@ task in this reply."""
                     self._skip_cache = True
                     continue
                 text = (text + piece).strip()
+                if not text and result.finish_reason != "length" and not asked_again:
+                    # Reasoning only, no text. Found: DeepSeek spent 11.5k
+                    # tokens reasoning and wrote nothing, and the review
+                    # ended "The model kept reading and gave no answer".
+                    asked_again = True
+                    self.ledger.append(LedgerEntry(
+                        turn, "user", "Your reply had no text. Write the answer now."))
+                    continue
                 if text or result.finish_reason != "length" or self._max_out >= self.MAX_OUT:
                     break
                 self._out_scale *= 2
@@ -867,6 +889,7 @@ task in this reply."""
             # Tools stay declared: a history with tool calls and no tool
             # definitions is refused by some providers (Anthropic).
             tool_choice="none" if tools_off else "auto",
+            reasoning_effort="" if local else self.settings.reasoning_effort,
         )
         self._max_out = spec.max_tokens
         result = self.client.call(spec)
@@ -997,7 +1020,8 @@ task in this reply."""
             # cost the model a turn to ask again.
             seen = self._seen_tool_calls.get(sig)
             if (self.settings.levers.loop_limits and seen and not spec.mutating
-                    and not self._elided_by_next_request(seen[0], turn)):
+                    and not self._elided_by_next_request(seen[0], turn, name,
+                                                         resolved.get("_rel"))):
                 if sig not in self._dup_warned:
                     self._dup_warned.add(sig)
                     return self._tool_result(
@@ -1124,9 +1148,12 @@ task in this reply."""
         body, _ = redact_mod.redact(region.content)
         return f"\n\nThe edited region now:\n{body}"
 
-    def _elided_by_next_request(self, first_turn: int, turn: int) -> bool:
+    def _elided_by_next_request(self, first_turn: int, turn: int, name: str = "",
+                                path: str | None = None) -> bool:
+        horizon = (self.ledger.read_horizon(turn + 1, path) if name == "read_file"
+                   else self.ledger.horizon(turn + 1))
         return (self.settings.levers.pruning and self.ledger.mode == "turns"
-                and first_turn < self.ledger.horizon(turn + 1))
+                and first_turn < horizon)
 
     def _escalation(self, decision):
         if self.settings.confidential:
@@ -1179,9 +1206,16 @@ task in this reply."""
                 for e in self.ledger.entries:
                     if e.pinned and e.summary and e.summary.startswith(key + " "):
                         e.pinned, e.superseded = False, True
+        path = None
+        if name == "read_file":
+            try:
+                raw = json.loads(call["function"].get("arguments") or "{}").get("path")
+                path = os.path.normpath(raw) if isinstance(raw, str) and raw else None
+            except (TypeError, ValueError):
+                pass
         self.ledger.append(LedgerEntry(
             turn, "tool", wrapped, kind="tool_result", tool_call_id=call["id"], name=name,
-            pinned=pin,
+            pinned=pin, path=path,
             summary=(f"{name}:{op} -> diff" if pin else
                      f"{name} -> {content.splitlines()[0][:70] if content else ''}")))
         return progressed

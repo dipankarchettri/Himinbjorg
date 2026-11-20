@@ -60,7 +60,7 @@ class FileMemory:
         """
         mode = "full" if force_full else self.decide(path, content)
         rec = self.records.get(path)
-        if mode != "full" and rec is not None and self._pruned(rec.first_sent_turn, turn):
+        if mode != "full" and rec is not None and self._pruned(rec.first_sent_turn, turn, path):
             # The earlier copy has been pruned from what the model sees.
             mode = "full"
         digest = sha256(content)
@@ -86,10 +86,10 @@ class FileMemory:
         self.records[path] = FileRecord(path, digest, turn, content)
         return content
 
-    def _pruned(self, first_turn: int, turn: int) -> bool:
+    def _pruned(self, first_turn: int, turn: int, path: str | None = None) -> bool:
         """Will the copy sent at first_turn be elided in the next request?"""
         if self.horizon is not None:
-            return first_turn < self.horizon(turn + 1)
+            return first_turn < self.horizon(turn + 1, path)
         if self.visible_turns is not None:
             return (turn + 1) - first_turn > self.visible_turns
         return False

@@ -34,6 +34,7 @@ class LedgerEntry:
     tool_calls: list[dict] | None = None
     name: str | None = None
     summary: str | None = None
+    path: str | None = None     # a read_file result's file, relative to the repository
     superseded: bool = False
 
     @property
@@ -61,6 +62,15 @@ class Ledger:
     # replaces old turns with a summary near the budget (Agent._compact).
     mode: str = "turns"
     entries: list[LedgerEntry] = field(default_factory=list)
+    # While a read-only task runs: its first turn and the files it names,
+    # whose reads are kept to the answer. Eliding them after three turns
+    # saves tokens on an edit, whose old reads are stale anyway, but on a
+    # review of named files they are the work: DeepSeek re-read ledger.py
+    # six times in one, each a whole call with the context resent. Keeping
+    # every read instead grew the context with each file it wandered into
+    # (326k tokens against 230k), so only the named ones are kept.
+    keep_reads_from: int | None = None
+    keep_paths: tuple[str, ...] = ()
     elided_tokens: int = 0      # left out of the latest request
     elided_total: int = 0       # left out, summed over the requests sent
     compacted_tokens: int = 0   # replaced by summaries, over the session
@@ -79,6 +89,15 @@ class Ledger:
         h = current_turn - self.keep_recent_turns
         step = max(1, self.prune_step)
         return (h // step) * step
+
+    def keeps(self, path: str | None) -> bool:
+        return (self.keep_reads_from is not None and bool(path)
+                and any(path == p or path.endswith("/" + p) for p in self.keep_paths))
+
+    def read_horizon(self, current_turn: int, path: str | None = None) -> int:
+        """Reads of `path` from turns before this are elided."""
+        h = self.horizon(current_turn)
+        return min(h, self.keep_reads_from) if self.keeps(path) else h
 
     def render(self, current_turn: int, fit: bool = True) -> list[dict[str, Any]]:
         """The messages of the next request. With fit, it is the request
@@ -105,7 +124,9 @@ class Ledger:
                 out.append(self._as_message(e, replacement))
                 continue
 
-            if not e.pinned and e.kind == "tool_result" and e.turn < horizon:
+            if (not e.pinned and e.kind == "tool_result"
+                    and e.turn < (self.read_horizon(current_turn, e.path)
+                                  if e.name == "read_file" else horizon)):
                 replacement = f"[elided, turn {e.turn}: {e.summary or self._one_line(content)}]"
                 elided += max(0, e.tokens - estimate_tokens(replacement))
                 out.append(self._as_message(e, replacement))

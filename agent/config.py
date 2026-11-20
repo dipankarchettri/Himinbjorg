@@ -158,6 +158,10 @@ class Settings:
     # (opencode's approach). Cheaper only with provider prompt caching;
     # on a local model it costs more tokens (docs/VERIFIED.md).
     prune_mode: str = "turns"
+    # Sent to cloud models when set. On DeepSeek V4.1 Flash "low" halved
+    # the reasoning tokens for the same answer; Gemini 3.1 Flash-Lite does
+    # not reason by default, and any effort turns it on. So unset by default.
+    reasoning_effort: str = ""
     resume: bool = False        # continue the saved session (agent/session.py)
 
     @property
@@ -211,6 +215,13 @@ def _prune_mode(value: str) -> str:
     return mode
 
 
+def _reasoning_effort(value: str) -> str:
+    effort = value.strip().lower()
+    if effort not in ("", "low", "medium", "high"):
+        raise ValueError(f"AGENT_REASONING_EFFORT must be low, medium or high, not {value!r}")
+    return effort
+
+
 def _sandbox_mode(value: str) -> str:
     mode = value.strip().lower()
     if mode not in ("auto", "required", "off"):
@@ -259,6 +270,7 @@ def load(argv: list[str] | None = None) -> Settings:
         context_budget=int(env.get("AGENT_CONTEXT_TOKENS", "28000")),
         cloud_context_budget=int(env.get("AGENT_CLOUD_CONTEXT_TOKENS", "64000")),
         prune_mode=_prune_mode(env.get("AGENT_PRUNE_MODE", "turns")),
+        reasoning_effort=_reasoning_effort(env.get("AGENT_REASONING_EFFORT", "")),
         resume=args.resume,
         repo_root=repo_root,
         confidential=is_confidential(repo_root, args.confidential),
