@@ -82,7 +82,7 @@ class Registry:
             partial(read_mod.list_dir, repo_root=r)))
         self._add(ToolSpec(
             "grep", Permission.FREE, "Search file contents by regex.",
-            _schema("grep", "Search file contents by regex.",
+            _schema("grep", "Search file contents by extended regex (a|b works).",
                     {"pattern": {"type": "string"}, "path": {"type": "string"}}, ["pattern"]),
             partial(read_mod.grep, repo_root=r)))
         self._add(ToolSpec(

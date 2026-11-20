@@ -159,9 +159,9 @@ def list_dir(path: str, repo_root: Path, **_) -> str:
     return f"{os.path.relpath(p, repo_root)}/\n" + "\n".join(rows[:200])
 
 
-def grep(pattern: str, repo_root: Path, path: str | None = None, **_) -> str:
-    target = path or str(repo_root)
-    cmd = ["grep", "-rnI", "--color=never"]
+def _run_grep(pattern: str, target: str, mode: str) -> tuple[list[str], bool, bool, str]:
+    """(lines, cut, timed_out, error). mode is "-E" (regex) or "-F" (plain text)."""
+    cmd = ["grep", "-rnIs", mode, "--color=never"]
     for d in SKIP_DIRS:
         cmd += ["--exclude-dir", d]
     # -e and -- keep a pattern or path that starts with "-" from being
@@ -171,11 +171,16 @@ def grep(pattern: str, repo_root: Path, path: str | None = None, **_) -> str:
     # common pattern can match hundreds of thousands of lines, which were
     # all held in memory, or ran past the timeout and returned nothing.
     try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 stdin=subprocess.DEVNULL, text=True, errors="replace")
     except FileNotFoundError as exc:
-        return f"ERROR: grep failed: {exc}"
-    timer = threading.Timer(GREP_TIMEOUT, proc.kill)
+        return [], False, False, f"grep failed: {exc}"
+    fired = threading.Event()
+
+    def kill() -> None:
+        fired.set()
+        proc.kill()
+    timer = threading.Timer(GREP_TIMEOUT, kill)
     timer.start()
     out, cut = [], False
     try:
@@ -188,8 +193,25 @@ def grep(pattern: str, repo_root: Path, path: str | None = None, **_) -> str:
     finally:
         timer.cancel()
         proc.stdout.close()
+        err = proc.stderr.read(2000)    # -s leaves only real errors, such as a bad pattern
+        proc.stderr.close()
         proc.wait()
-    timed_out = not cut and proc.returncode not in (0, 1)
+    error = err.strip() if proc.returncode == 2 and not cut and not fired.is_set() else ""
+    return out, cut, fired.is_set(), error
+
+
+def grep(pattern: str, repo_root: Path, path: str | None = None, **_) -> str:
+    target = path or str(repo_root)
+    # Extended syntax, which is what models write: in grep's default basic
+    # syntax "a|b" matches a literal "|", and "\{" is an error.
+    out, cut, timed_out, error = _run_grep(pattern, target, "-E")
+    note = ""
+    if error and not out:
+        # Not a valid regex (say "def f(" ): search for the text itself.
+        out, cut, timed_out, error2 = _run_grep(pattern, target, "-F")
+        if error2:
+            return f"ERROR: grep failed: {error2[:200]}"
+        note = f"\n[not a valid regex ({error[:120]}); searched for the plain text]"
     if timed_out and not out:
         return f"ERROR: grep found nothing within {GREP_TIMEOUT:.0f} s; narrow the path"
     # The read tool refuses credentials files; grep must not show their
@@ -200,8 +222,8 @@ def grep(pattern: str, repo_root: Path, path: str | None = None, **_) -> str:
     hidden = len(out) - len(kept)
     out = kept
     if not out:
-        note = f" ({hidden} in credentials files withheld)" if hidden else ""
-        return f"no matches for {pattern!r}{note}"
+        hidden_note = f" ({hidden} in credentials files withheld)" if hidden else ""
+        return f"no matches for {pattern!r}{hidden_note}{note}"
     trimmed = [l[:300] for l in out[:MAX_GREP_MATCHES]]
     rel = [l.replace(str(repo_root) + os.sep, "") for l in trimmed]
     more = f"\n[{len(out) - len(trimmed)} more matches not shown]" if len(out) > len(trimmed) else ""
@@ -210,4 +232,4 @@ def grep(pattern: str, repo_root: Path, path: str | None = None, **_) -> str:
                 "Narrow the pattern or the path]")
     if hidden:
         more += f"\n[{hidden} matches in credentials files withheld]"
-    return "\n".join(rel) + more
+    return "\n".join(rel) + more + note

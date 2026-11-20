@@ -275,6 +275,24 @@ def test_grep_pattern_is_never_an_option(tmp_path):
     assert "a.txt:1:" in out
 
 
+def test_grep_takes_the_regex_syntax_models_write(tmp_path):
+    # In grep's basic syntax "a|b" is a literal "|" and "\\{" is an error that
+    # was reported as a timeout. About a fifth of recorded grep calls used "|".
+    from agent.tools import read as read_mod
+    (tmp_path / "m.py").write_text("def get_metavar():\n    pass\ndef make_metavar():\n    x = '[{'\n")
+    out = read_mod.grep("def get_metavar|def make_metavar", tmp_path)
+    assert "m.py:1:" in out and "m.py:3:" in out
+    assert "m.py:4:" in read_mod.grep(r"\[\{", tmp_path)
+
+
+def test_grep_searches_an_invalid_regex_as_plain_text(tmp_path):
+    from agent.tools import read as read_mod
+    (tmp_path / "m.py").write_text("def make_metavar(self, ctx):\n")
+    out = read_mod.grep("make_metavar(self", tmp_path)
+    assert "m.py:1:" in out and "searched for the plain text" in out
+    assert "within" not in out
+
+
 # Fake credentials are assembled at runtime so no key-shaped string is
 # committed (secret scanners would flag it, and rightly).
 _FAKE_KEYS = {
