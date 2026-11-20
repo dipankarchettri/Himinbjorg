@@ -185,7 +185,13 @@ class Registry:
             # An unknown name is an error result, never an exception that
             # ends the session.
             return ToolResult(False, f"ERROR: unknown tool {name!r}")
-        clean = {k: v for k, v in (args or {}).items() if not k.startswith("_")}
+        # Only the arguments the tool declares (and dry_run, which the loop
+        # adds). The handlers are partials with repo_root, sandbox and
+        # network bound, and a call's keywords override a partial's: a
+        # model sending repo_root="/" to grep searched outside the
+        # repository with no approval (found in review).
+        declared = spec.schema["function"]["parameters"].get("properties", {})
+        clean = {k: v for k, v in (args or {}).items() if k in declared or k == "dry_run"}
         try:
             out = spec.handler(**clean)
         except TypeError as exc:

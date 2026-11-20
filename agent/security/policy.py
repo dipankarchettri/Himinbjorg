@@ -147,7 +147,12 @@ def validate_args(spec: ToolSpec, args: dict, repo_root: Path) -> dict:
     Runs before the approval prompt so that what the human sees is the
     resolved, validated action rather than the model's description of it.
     """
-    out = dict(args or {})
+    # Only what the tool declares. Underscored keys are the validator's own
+    # (_rel), and a key the tool does not declare would override a bound
+    # argument such as repo_root (the registry drops them too).
+    declared = spec.schema.get("function", {}).get("parameters", {}).get("properties", {})
+    out = {k: v for k, v in (args or {}).items()
+           if not str(k).startswith("_") and (k in declared or not declared)}
 
     if "path" in out and out["path"] is not None:
         resolved = resolve_in_repo(str(out["path"]), repo_root)

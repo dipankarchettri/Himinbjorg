@@ -1152,3 +1152,26 @@ def test_reasoning_effort_is_sent_in_bifrosts_form(monkeypatch):
     except Exception:                   # noqa: BLE001 - only the request matters here
         pass
     assert sent["extra_body"]["reasoning"] == {"effort": "low"}
+
+
+def test_a_model_cannot_override_the_repository_or_the_sandbox(repo, tmp_path, monkeypatch):
+    # Found in review: handlers are partials with repo_root bound, and a
+    # call's keywords override a partial's, so grep with repo_root set to
+    # another directory read files outside the repository, unapproved.
+    from agent.tools import shell as shell_mod
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "notes.txt").write_text("TOKEN=hunter2\n")
+    seen = {}
+    monkeypatch.setattr(shell_mod.sandbox_mod, "abi_version", lambda: 0)
+    real = shell_mod.subprocess.run
+    monkeypatch.setattr(shell_mod.subprocess, "run",
+                        lambda argv, **kw: (seen.setdefault("cwd", kw.get("cwd")), real(argv, **kw))[1])
+    agent, client = make_agent(repo, [([call("grep", pattern="hunter2", repo_root=str(outside))], ""),
+                                      ([call("run_command", command=["true"], repo_root=str(outside),
+                                             sandbox="off")], ""),
+                                      ([], "done"), ([], "done")])
+    agent.run("fix calc.py")
+    results = [m["content"] for m in client.specs[-1].messages if m["role"] == "tool"]
+    assert "TOKEN=hunter2" not in results[0] and "no matches" in results[0]
+    assert seen["cwd"] == str(repo.resolve()) or seen["cwd"] == str(repo)
