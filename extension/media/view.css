@@ -113,17 +113,24 @@ button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-off
 }
 #empty p, .setup p { margin: 0 0 16px; }
 .setup .small { font-size: 0.85em; margin-top: 10px; }
-.suggestions { display: flex; flex-direction: column; gap: 6px; text-align: left; }
-button.suggest {
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--raised);
-  color: var(--vscode-foreground);
+.tips {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 12px 12px 4px;
+  border-top: 1px solid var(--border);
   text-align: left;
-  cursor: pointer;
+  font-size: 0.92em;
 }
-button.suggest:hover { border-color: var(--vscode-focusBorder); }
+.tips li { display: flex; gap: 9px; align-items: flex-start; margin-bottom: 10px; }
+.tips .ic { margin-top: 3px; color: var(--amber); }
+kbd {
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
+}
 .primary-btn {
   padding: 7px 16px;
   border: 0;
@@ -133,6 +140,53 @@ button.suggest:hover { border-color: var(--vscode-focusBorder); }
   cursor: pointer;
 }
 .primary-btn:hover { background: var(--vscode-button-hoverBackground); }
+.secondary-btn {
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  background: var(--vscode-button-secondaryBackground, transparent);
+  cursor: pointer;
+}
+.secondary-btn:hover { background: var(--vscode-button-secondaryHoverBackground, var(--raised)); }
+.primary-btn:disabled, .secondary-btn:disabled { opacity: 0.55; cursor: default; }
+
+/* --------------------------------------------------------- approval */
+#approval {
+  margin: 0 10px;
+  padding: 10px 11px;
+  border: 1px solid var(--amber);
+  border-radius: 10px;
+  background: var(--raised);
+  max-height: 55vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#approval .head { display: flex; align-items: center; gap: 7px; color: var(--amber); }
+#approval .title { color: var(--vscode-foreground); word-break: break-all; }
+#approval .title code { font-family: var(--vscode-editor-font-family); font-size: 0.95em; }
+#approval pre {
+  margin: 0;
+  padding: 6px 8px;
+  overflow: auto;
+  min-height: 2.5em;
+  border-radius: 6px;
+  background: var(--surface);
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.88em;
+  line-height: 1.45;
+  white-space: pre;
+}
+#approval pre.args { white-space: pre-wrap; word-break: break-all; }
+#approval .diff .add { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); display: block; }
+#approval .diff .del { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); display: block; }
+#approval .diff .hunk { color: var(--muted); }
+#approval .diff .file { color: var(--muted); font-weight: 600; }
+#approval .diff span { white-space: pre; }
+#approval .note { font-size: 0.82em; color: var(--muted); }
+#approval .note.warn { color: var(--warn); }
+#approval .buttons { display: flex; flex-wrap: wrap; gap: 6px; }
 
 .turn { margin-bottom: 14px; }
 .msg { word-break: break-word; }

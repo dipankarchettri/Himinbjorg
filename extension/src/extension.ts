@@ -1,10 +1,13 @@
 // Himinbjorg for VS Code: a front end for `himin --serve` (agent/server.py).
 //
-// Approvals are answered only here, with native modal dialogs a person
-// clicks. Nothing the model writes (rendered in the webview) can reach the
-// approval path, and the agent's gate sends only what it built itself:
-// the tool, the resolved arguments and the dry-run diff.
+// Approvals are decided here. By default they are asked in the chat view,
+// on a card the extension builds from what the agent's gate sent (the
+// tool, the resolved arguments and the dry-run diff), shown outside the
+// conversation, where model text never goes. An answer counts only if it
+// names the pending request and its one-time token. himinbjorg.approvals
+// set to "dialog" asks with native modal dialogs instead.
 
+import { randomBytes } from "crypto";
 import { EventEmitter } from "events";
 import * as path from "path";
 import * as vscode from "vscode";
@@ -24,6 +27,9 @@ let confidential = false;
 let servedBy = "";
 let sessionCost: number | undefined;
 const diffs = new Map<string, string>();
+type Answer = "y" | "n" | "a";
+// The approval waiting in the chat view, if any: at most one at a time.
+let pending: { id: string; token: string; card: string; edit: boolean; settle: (a: Answer) => void } | undefined;
 // Agent events, re-emitted for the extension tests (src/test/vscode),
 // with read-only views of what the chat view and status bar were given.
 const events = new EventEmitter();
@@ -33,6 +39,8 @@ export interface TestApi {
   events: EventEmitter;
   posted: readonly { kind: string; text: string }[];
   statusText(): string;
+  /** A message as if the chat view sent it, through the same checks. */
+  viewMessage(msg: unknown): void;
 }
 
 export function activate(context: vscode.ExtensionContext): TestApi {
@@ -59,7 +67,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
       }
     }),
     vscode.commands.registerCommand("himinbjorg.askAboutSelection", askAboutSelection),
-    vscode.commands.registerCommand("himinbjorg.stop", () => client?.send({ type: "cancel" })),
+    vscode.commands.registerCommand("himinbjorg.stop", stopTask),
     vscode.commands.registerCommand("himinbjorg.undo", () => command("undo")),
     vscode.commands.registerCommand("himinbjorg.cost", () => command("cost")),
     vscode.commands.registerCommand("himinbjorg.reset", () => command("reset")),
@@ -69,14 +77,16 @@ export function activate(context: vscode.ExtensionContext): TestApi {
       ensureClient();
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("himinbjorg")) {
+      // Where approvals are asked takes effect on the next one; the rest
+      // is read when the agent starts.
+      if (e.affectsConfiguration("himinbjorg") && !e.affectsConfiguration("himinbjorg.approvals")) {
         vscode.window.showInformationMessage("Himinbjorg settings changed. Restart the agent to apply them.", "Restart")
           .then((pick) => pick && vscode.commands.executeCommand("himinbjorg.restart"));
       }
     }),
     { dispose: () => client?.stop() },
   );
-  return { events, posted, statusText: () => status.text };
+  return { events, posted, statusText: () => status.text, viewMessage: (msg) => view.receive(msg) };
 }
 
 export function deactivate(): void {
@@ -118,6 +128,7 @@ function ensureClient(): AgentClient | undefined {
     ).then((pick) => pick && vscode.commands.executeCommand("workbench.action.openSettings", "himinbjorg.command"));
   });
   c.on("exit", (code: number | null) => {
+    pending?.settle("n");
     setBusy(false);
     if (client === c) {
       client = undefined;
@@ -159,13 +170,23 @@ function onViewMessage(msg: ViewMessage): void {
       runTask(msg.text);
       break;
     case "cancel":
-      client?.send({ type: "cancel" });
+      stopTask();
+      break;
+    case "approve":
+      // Only the pending request, with its token, and "all" only for an edit.
+      if (pending && msg.id === pending.id && msg.token === pending.token && (msg.answer !== "a" || pending.edit)) {
+        pending.settle(msg.answer);
+      }
       break;
     case "visible":
       // Start the agent when the panel opens, so the header, a setup card
-      // or a gateway problem shows before the first task.
+      // or a gateway problem shows before the first task. A view that was
+      // closed and opened again shows the approval still waiting.
       if (repoRoot()) {
         ensureClient();
+      }
+      if (pending) {
+        view.post({ kind: "approval", text: pending.card });
       }
       break;
     case "setup":
@@ -175,6 +196,11 @@ function onViewMessage(msg: ViewMessage): void {
     default:
       command(msg.type);
   }
+}
+
+function stopTask(): void {
+  pending?.settle("n");
+  client?.send({ type: "cancel" });
 }
 
 function agentCommand(): string {
@@ -338,6 +364,7 @@ function onStats(stats: Record<string, unknown> | undefined, session = false): v
 // Every request gets an answer. If anything fails before the person has
 // answered (the dialog cannot be shown, the diff cannot be opened), the
 // answer is a denial: fail closed, and never leave the agent waiting.
+// A card in the view waits until it is answered or the task is stopped.
 async function approveOrDeny(req: ApprovalRequest): Promise<void> {
   try {
     await approve(req);
@@ -372,20 +399,10 @@ async function approve(req: ApprovalRequest): Promise<void> {
       lines.push(`${k}: ${text.length > 600 ? text.slice(0, 600) + " ..." : text}`);
     }
   }
-  if (req.injection_markers_seen) {
-    lines.push("", "Note: approval-bypass phrasing was present in the context. It has no effect on this dialog.");
-  }
-
-  const approveOne = "Approve";
-  const approveAll = "Approve all edits this session";
-  const buttons = req.edit ? [approveOne, approveAll] : [approveOne];
-  const pick = await vscode.window.showWarningMessage(
-    `Himinbjorg wants to run ${req.tool}${target ? ` on ${target}` : ""}`,
-    { modal: true, detail: lines.join("\n") },
-    ...buttons,
-  );
-  // Dismissing the dialog (Cancel, Escape) is a denial.
-  const answer = pick === approveAll ? "a" : pick === approveOne ? "y" : "n";
+  const where = vscode.workspace.getConfiguration("himinbjorg").get<string>("approvals", "panel");
+  const answer = where === "dialog"
+    ? await askInDialog(req, target, lines)
+    : await askInPanel(req, target, req.diff ? [] : lines);
 
   // Close the preview first: once answered, the agent may finish (or ask
   // again with a new diff) before a later close would run.
@@ -399,6 +416,49 @@ async function approve(req: ApprovalRequest): Promise<void> {
   }
   client?.answer(req.id, answer);
   view.post({ kind: "log", text: `${req.tool}${target ? " " + target : ""}: ${answer === "n" ? "denied" : "approved"}` });
+}
+
+// The card is built here from the gate's request and placed by the view
+// outside the conversation. Stopping the task or losing the agent denies it.
+function askInPanel(req: ApprovalRequest, target: string, args: string[]): Promise<Answer> {
+  pending?.settle("n");
+  return new Promise((resolve) => {
+    const token = randomBytes(16).toString("hex");
+    const card = JSON.stringify({
+      id: req.id, token, tool: req.tool, target, edit: req.edit, args,
+      diff: req.diff ?? "", warning: req.injection_markers_seen,
+    });
+    const mine = {
+      id: req.id, token, card, edit: req.edit,
+      settle: (a: Answer) => {
+        if (pending !== mine) {
+          return;
+        }
+        pending = undefined;
+        view.post({ kind: "approval_done", text: req.id });
+        resolve(a);
+      },
+    };
+    pending = mine;
+    view.reveal();
+    view.post({ kind: "approval", text: card });
+  });
+}
+
+async function askInDialog(req: ApprovalRequest, target: string, lines: string[]): Promise<Answer> {
+  if (req.injection_markers_seen) {
+    lines.push("", "Note: approval-bypass phrasing was present in the context. It has no effect on this dialog.");
+  }
+  const approveOne = "Approve";
+  const approveAll = "Approve all edits this session";
+  const buttons = req.edit ? [approveOne, approveAll] : [approveOne];
+  const pick = await vscode.window.showWarningMessage(
+    `Himinbjorg wants to run ${req.tool}${target ? ` on ${target}` : ""}`,
+    { modal: true, detail: lines.join("\n") },
+    ...buttons,
+  );
+  // Dismissing the dialog (Cancel, Escape) is a denial.
+  return pick === approveAll ? "a" : pick === approveOne ? "y" : "n";
 }
 
 // ------------------------------------------------------------------- status

@@ -107,6 +107,17 @@
           "scope": "machine",
           "description": "Path to the himin executable. Left at himin, it is found on PATH, then in pipx's bin directory (PIPX_BIN_DIR or ~/.local/bin). Machine scope: a workspace cannot change it."
         },
+        "himinbjorg.approvals": {
+          "type": "string",
+          "enum": ["panel", "dialog"],
+          "enumDescriptions": [
+            "In the chat view, on a card with the exact diff, outside the conversation.",
+            "In native modal dialogs, with the diff open beside them."
+          ],
+          "default": "panel",
+          "scope": "machine",
+          "description": "Where the agent asks before an edit, a command or a git action. Machine scope: a workspace cannot change it."
+        },
         "himinbjorg.confidential": {
           "type": "boolean",
           "default": false,

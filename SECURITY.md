@@ -8,9 +8,9 @@ The threat model and the enforcement points are in
 ## What the harness guarantees
 
 - **Approval.** Reads are free. Every write, shell command and git action
-  needs your explicit approval, given on the terminal or in a VS Code
-  modal dialog that shows the exact diff. Nothing the model reads or
-  writes can grant an approval.
+  needs your explicit approval, given on the terminal or in VS Code, on
+  the panel's approval card or a modal dialog, both showing the exact
+  diff. Nothing the model reads or writes can grant an approval.
 - **Sandbox.** On Linux, an approved shell or git command runs under
   Landlock: it can write only inside the repository and temp, and cannot
   open TCP connections unless you allow it. Git also ignores the hooks,

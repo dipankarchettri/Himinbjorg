@@ -189,8 +189,10 @@ high contrast.
 maintainers fixed in `762c97e`; the fix passes their tests and the rest
 of click's suite, 1,658 tests in all.*
 
-Approvals come only from native modal dialogs, never from the panel that
-shows model text, and the exact diff opens beside the dialog. Failover
+Approvals are asked in the panel, on a card with the exact diff that
+the extension builds and keeps outside the conversation, so model text
+cannot imitate or answer it; native modal dialogs are a setting away
+(`himinbjorg.approvals`). Failover
 and budget changes appear as notifications, and the status bar shows the
 session's cost. More in [extension/README.md](extension/README.md).
 

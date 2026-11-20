@@ -1,7 +1,8 @@
-// The sidebar chat view. It renders model text and sends tasks, and is
-// deliberately unable to approve anything: approvals are native modal
-// dialogs owned by extension.ts. Model text is untrusted, so the page has
-// a strict CSP and every string is placed with textContent (view.js).
+// The sidebar chat view. It renders model text, sends tasks and shows the
+// approval card extension.ts builds. Model text is untrusted, so the page
+// has a strict CSP and every string is placed with textContent (view.js);
+// the card sits outside the conversation, where model text never goes,
+// and an answer counts only with the pending request's one-time token.
 
 import { randomBytes } from "crypto";
 import * as vscode from "vscode";
@@ -14,10 +15,11 @@ export type ViewMessage =
   | { type: "reset" }
   | { type: "setup" }
   | { type: "doctor" }
-  | { type: "visible" };
+  | { type: "visible" }
+  | { type: "approve"; id: string; token: string; answer: "y" | "n" | "a" };
 
-// Whitelist: there is no message type that answers an approval.
-const ALLOWED = new Set(["task", "cancel", "undo", "cost", "reset", "setup", "doctor", "visible"]);
+const ALLOWED = new Set(["task", "cancel", "undo", "cost", "reset", "setup", "doctor", "visible", "approve"]);
+const ANSWERS = new Set(["y", "n", "a"]);
 
 const ICONS: Record<string, string> = {
   logo: '<path d="M2 14a6 6 0 0 1 12 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4.3 14a3.7 3.7 0 0 1 7.4 0" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity=".6"/><rect x="7" y="6.2" width="2" height="3.4" rx=".5" fill="currentColor"/>',
@@ -30,6 +32,8 @@ const ICONS: Record<string, string> = {
   shield: '<path d="M8 2 3 4v3.6c0 3 2.1 5.4 5 6.4 2.9-1 5-3.4 5-6.4V4z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>',
   warn: '<path d="M8 2.5 1.8 13.2h12.4z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8 6.5v3.2M8 11.6v.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
   copy: '<rect x="5.5" y="5.5" width="7.5" height="8" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M3 10.5V3.8C3 3.4 3.4 3 3.8 3h5.7" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>',
+  select: '<path d="M3 4h10M3 8h6M3 12h8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M12 7.5v5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>',
+  keys: '<rect x="1.8" y="4" width="12.4" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 6.8h.1M7 6.8h.1M9.5 6.8h.1M12 6.8h.1M5 9.4h6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>',
   check: '<path d="m3.5 8.3 2.8 2.8 6.2-6.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
 };
 
@@ -53,22 +57,33 @@ export class ChatView implements vscode.WebviewViewProvider {
     const media = vscode.Uri.joinPath(this.extensionUri, "media");
     view.webview.options = { enableScripts: true, localResourceRoots: [media] };
     view.webview.html = this.html(view.webview, media);
-    view.webview.onDidReceiveMessage((msg: { type?: unknown; text?: unknown }) => {
-      if (typeof msg?.type !== "string" || !ALLOWED.has(msg.type)) {
-        return;
-      }
-      if (msg.type === "task") {
-        if (typeof msg.text === "string" && msg.text.trim()) {
-          this.onMessage({ type: "task", text: msg.text });
-        }
-        return;
-      }
-      this.onMessage({ type: msg.type } as ViewMessage);
-    });
+    view.webview.onDidReceiveMessage((msg) => this.receive(msg));
     view.onDidDispose(() => (this.view = undefined));
     for (const item of this.backlog.splice(0)) {
       view.webview.postMessage(item);
     }
+  }
+
+  /** Check a message from the page and pass on only what is allowed. */
+  receive(raw: unknown): void {
+    const msg = raw as { type?: unknown; text?: unknown; id?: unknown; token?: unknown; answer?: unknown };
+    if (typeof msg?.type !== "string" || !ALLOWED.has(msg.type)) {
+      return;
+    }
+    if (msg.type === "task") {
+      if (typeof msg.text === "string" && msg.text.trim()) {
+        this.onMessage({ type: "task", text: msg.text });
+      }
+      return;
+    }
+    if (msg.type === "approve") {
+      if (typeof msg.id === "string" && typeof msg.token === "string"
+          && typeof msg.answer === "string" && ANSWERS.has(msg.answer)) {
+        this.onMessage({ type: "approve", id: msg.id, token: msg.token, answer: msg.answer as "y" | "n" | "a" });
+      }
+      return;
+    }
+    this.onMessage({ type: msg.type } as ViewMessage);
   }
 
   post(item: { kind: string; text: string }): void {
@@ -123,16 +138,17 @@ export class ChatView implements vscode.WebviewViewProvider {
 <main id="log" aria-live="polite">
   <section id="empty">
     ${icon("logo", "ic hero")}
-    <h1>What should we work on?</h1>
-    <p>Ask about this repository or describe a change. Reading is free; every edit, command and git action asks you first, with the exact diff.</p>
-    <div class="suggestions">
-      <button class="suggest">Explain how this repository is organised</button>
-      <button class="suggest">Find the failing test and fix it</button>
-      <button class="suggest">Review my uncommitted changes</button>
-      <button class="suggest">Add a test for the function I have open</button>
-    </div>
+    <h1>Himinbjorg</h1>
+    <p>A coding agent for this repository. Ask a question or describe a change below.</p>
+    <ul class="tips">
+      <li>${icon("shield", "ic small")}<span>Reading is free. Edits, commands and git actions ask you first, here, with the exact diff.</span></li>
+      <li>${icon("undo", "ic small")}<span>Undo the last edit, see the cost, or start over from the buttons above.</span></li>
+      <li>${icon("select", "ic small")}<span>Select code and run <b>Himinbjorg: Ask about the selection</b>.</span></li>
+      <li>${icon("keys", "ic small")}<span><kbd>↑</kbd> recalls your last task; <kbd>Esc</kbd> stops one.</span></li>
+    </ul>
   </section>
 </main>
+<section id="approval" hidden aria-live="assertive"></section>
 <form id="composer">
   <div class="box">
     <textarea id="input" rows="1" placeholder="Ask a question or describe a change" aria-label="Task"></textarea>
@@ -142,7 +158,7 @@ export class ChatView implements vscode.WebviewViewProvider {
       <button type="button" id="stop" class="round danger" title="Stop the task" aria-label="Stop" hidden>${icon("stop")}</button>
     </div>
   </div>
-  <div class="foot">${icon("shield", "ic tiny")}<span>Approvals open as dialogs, never in this panel</span></div>
+  <div class="foot">${icon("shield", "ic tiny")}<span>Edits, commands and git ask before they run</span></div>
 </form>
 ${templates}
 <script nonce="${nonce}" src="${script}"></script>

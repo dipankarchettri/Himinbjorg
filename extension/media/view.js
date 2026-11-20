@@ -396,16 +396,82 @@
   for (const btn of document.querySelectorAll("button[data-cmd]")) {
     btn.addEventListener("click", () => vscode.postMessage({ type: btn.dataset.cmd }));
   }
-  function bindSuggestions() {
-    for (const btn of document.querySelectorAll("button.suggest")) {
-      btn.addEventListener("click", () => {
-        input.value = btn.textContent;
-        grow();
-        input.focus();
-      });
+
+  // ----------------------------------------------------------- approval
+
+  // The card comes only from the extension's "approval" message, which it
+  // builds from the agent's gate, and sits outside #log, so model text can
+  // never stand in for it. Its buttons answer with the one-time token.
+  const approval = $("approval");
+  const ARM_MS = 500;     // a card appearing under the cursor is not clicked by accident
+
+  function diffBlock(diff) {
+    const pre = el("pre", "diff");
+    for (const line of diff.replace(/\n$/, "").split("\n")) {
+      const cls = line.startsWith("+++") || line.startsWith("---") ? "file"
+        : line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : line.startsWith("@@") ? "hunk" : "";
+      pre.appendChild(el("span", cls, line + "\n"));
     }
+    return pre;
   }
-  bindSuggestions();
+
+  function showApproval(card) {
+    approval.replaceChildren();
+    const head = el("div", "head");
+    head.appendChild(icon("shield", "small"));
+    const title = el("span", "title");
+    title.appendChild(el("span", null, "Allow "));
+    title.appendChild(el("b", null, card.tool));
+    if (card.target) {
+      title.appendChild(el("span", null, " on "));
+      title.appendChild(el("code", null, card.target));
+    }
+    title.appendChild(el("span", null, "?"));
+    head.appendChild(title);
+    approval.appendChild(head);
+    if (card.diff) {
+      approval.appendChild(diffBlock(card.diff));
+      approval.appendChild(el("div", "note", "The exact change, from a dry run against the file. It is also open in the editor."));
+    } else if (card.args && card.args.length) {
+      approval.appendChild(el("pre", "args", card.args.join("\n")));
+    }
+    if (card.warning) {
+      approval.appendChild(el("div", "note warn",
+        "Text asking to skip approval was in the context. It has no effect on this card."));
+    }
+    const row = el("div", "buttons");
+    const choices = [["y", "Approve", "primary-btn", "Run this once"]];
+    if (card.edit) choices.push(["a", "Approve all edits", "secondary-btn", "Approve this and every later edit in this session"]);
+    choices.push(["n", "Deny", "secondary-btn", "Do not run it; the agent is told you declined"]);
+    for (const [answer, label, cls, tip] of choices) {
+      const b = el("button", cls, label);
+      b.type = "button";
+      b.title = tip;
+      b.disabled = true;
+      b.addEventListener("click", () => {
+        for (const x of row.querySelectorAll("button")) x.disabled = true;
+        vscode.postMessage({ type: "approve", id: card.id, token: card.token, answer });
+      });
+      row.appendChild(b);
+    }
+    approval.appendChild(row);
+    approval.dataset.id = card.id;
+    approval.hidden = false;
+    setThinking(false);
+    setTimeout(() => {
+      if (approval.dataset.id === card.id) {
+        for (const x of row.querySelectorAll("button")) x.disabled = false;
+      }
+    }, ARM_MS);
+  }
+
+  function hideApproval(id) {
+    if (approval.dataset.id !== id) return;
+    approval.hidden = true;
+    approval.replaceChildren();
+    delete approval.dataset.id;
+    if (busy && !live) setThinking(true);
+  }
 
   // ----------------------------------------------------------- messages
 
@@ -415,7 +481,6 @@
     switch (kind) {
       case "clear":
         log.replaceChildren(emptyState.cloneNode(true));
-        bindSuggestions();
         turn = steps = live = thinking = null;
         return;
       case "busy":
@@ -431,6 +496,12 @@
         return;
       case "setup":
         addSetup();
+        return;
+      case "approval":
+        try { showApproval(JSON.parse(text)); } catch (_) { /* ignore a bad payload */ }
+        return;
+      case "approval_done":
+        hideApproval(text);
         return;
     }
     if (typeof text !== "string") return;

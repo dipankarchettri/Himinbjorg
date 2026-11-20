@@ -1,6 +1,7 @@
 // Full user flows inside VS Code, against the real agent and gateway:
-// `npm run test:flow`. The two dialogs a person answers (the input box and
-// the modal approval) are intercepted at the vscode API, so the run is
+// `npm run test:flow`. The input box and the modal approval are intercepted
+// at the vscode API, and the panel's approval card is answered with the
+// messages its buttons send, through the same checks, so the run is
 // unattended; everything else is the real extension, agent and editor.
 import * as assert from "assert";
 import { EventEmitter } from "events";
@@ -12,6 +13,7 @@ interface TestApi {
   events: EventEmitter;
   posted: readonly { kind: string; text: string }[];
   statusText(): string;
+  viewMessage(msg: unknown): void;
 }
 
 interface Modal {
@@ -69,6 +71,19 @@ async function ask(api: TestApi, text: string): Promise<Record<string, unknown>>
   return done;
 }
 
+/** The next approval card posted to the view after `from` items. */
+async function card(api: TestApi, from: number, timeoutMs = 240_000): Promise<Record<string, unknown>> {
+  const end = Date.now() + timeoutMs;
+  while (Date.now() < end) {
+    const c = api.posted.slice(from).find((p) => p.kind === "approval");
+    if (c) {
+      return JSON.parse(c.text);
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error("timed out waiting for an approval card");
+}
+
 function step(name: string): void {
   console.log(`\n== ${name}`);
 }
@@ -78,6 +93,8 @@ export async function run(): Promise<void> {
   console.log("extension:", ext.id, ext.packageJSON.version, "from", ext.extensionPath);
   const api = (await ext.activate()) as TestApi;
   intercept();
+  const settings = vscode.workspace.getConfiguration("himinbjorg");
+  await settings.update("approvals", "dialog", vscode.ConfigurationTarget.Global);
   const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
   const calc = path.join(root, "calc.py");
   const original = fs.readFileSync(calc, "utf8");
@@ -97,6 +114,7 @@ export async function run(): Promise<void> {
   assert.ok(stats && /\$\d/.test(stats.text), "per-task cost shown");
   console.log("status bar:", api.statusText());
   assert.strictEqual(modals.length, 0, "no approval for a read-only question");
+  assert.ok(!api.posted.some((p) => p.kind === "approval"), "no approval card either");
 
   step("edit, denied");
   answerFor = () => undefined;                                  // Cancel / Escape
@@ -153,6 +171,42 @@ export async function run(): Promise<void> {
   assert.ok(api.posted.some((p) => p.kind === "error" && /approval dialog failed/.test(p.text)),
     "the failure is reported in the view");
   console.log("result:", String(r4.text).slice(0, 100));
+
+  step("approval in the panel: a wrong token is ignored, then approved");
+  await settings.update("approvals", "panel", vscode.ConfigurationTarget.Global);
+  await vscode.commands.executeCommand("himinbjorg.reset");
+  modals.length = 0;
+  let from = api.posted.length;
+  const r5 = ask(api, "Fix divide() in calc.py so it returns None when b is 0. Do not run anything.");
+  const c1 = await card(api, from);
+  console.log("card:", c1.tool, c1.target, "| diff lines:", String(c1.diff).split("\n").length);
+  assert.ok(/apply_patch|write_file/.test(String(c1.tool)) && String(c1.diff).includes("+"), "the card carries the diff");
+  assert.strictEqual(modals.length, 0, "no dialog in panel mode");
+  api.viewMessage({ type: "approve", id: c1.id, token: "forged", answer: "y" });
+  api.viewMessage({ type: "approve", id: "other", token: c1.token, answer: "y" });
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.strictEqual(fs.readFileSync(calc, "utf8"), original, "a forged answer approved nothing");
+  assert.ok(!api.posted.slice(from).some((p) => p.kind === "approval_done"), "the card still waits");
+  api.viewMessage({ type: "approve", id: c1.id, token: c1.token, answer: "y" });
+  await r5;
+  assert.ok(/None/.test(fs.readFileSync(calc, "utf8")), "approved in the panel: the fix is in the file");
+  assert.ok(api.posted.slice(from).some((p) => p.kind === "approval_done" && p.text === c1.id), "the card was removed");
+  const undone = next(api.events, "info", 30_000);
+  await vscode.commands.executeCommand("himinbjorg.undo");
+  await undone;
+  assert.strictEqual(fs.readFileSync(calc, "utf8"), original, "undo restored the file");
+
+  step("approval in the panel: stopping the task denies it");
+  await vscode.commands.executeCommand("himinbjorg.reset");
+  from = api.posted.length;
+  const r6 = ask(api, "Fix divide() in calc.py so it returns None when b is 0.");
+  const c2 = await card(api, from);
+  await vscode.commands.executeCommand("himinbjorg.stop");
+  await r6;
+  assert.strictEqual(fs.readFileSync(calc, "utf8"), original, "stopped: file unchanged");
+  api.viewMessage({ type: "approve", id: c2.id, token: c2.token, answer: "y" });   // too late
+  await new Promise((r) => setTimeout(r, 1000));
+  assert.strictEqual(fs.readFileSync(calc, "utf8"), original, "a late answer changes nothing");
 
   step("confidential setting, then restart");
   await vscode.workspace.getConfiguration("himinbjorg").update("confidential", true, vscode.ConfigurationTarget.Workspace);

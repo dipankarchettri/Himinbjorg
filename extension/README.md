@@ -12,9 +12,11 @@ runs as `himin --serve` in the open folder.
   starts a new line, the up arrow recalls the last task and Escape stops one.
   Undo, cost and a new conversation are one click in the header. It follows
   your light, dark or high-contrast theme.
-- **Approvals as native dialogs.** Every file edit opens the exact diff
-  (a dry run against the file on disk) beside a modal dialog: Approve,
-  Approve all edits this session, or Cancel. Commands and git ask every time.
+- **Approvals in the panel.** Every file edit shows the exact diff (a dry
+  run against the file on disk) on a card above the input, and opens it in
+  the editor too: Approve, Approve all edits (this session), or Deny.
+  Commands and git ask every time. Set `himinbjorg.approvals` to `dialog`
+  for native modal dialogs instead.
 - **Failover and budget notices.** When a provider fails and another model
   takes over, or the budget forces a cheaper tier, you get a notification
   naming the model now serving.
@@ -41,10 +43,15 @@ says so, with buttons that run `himin doctor` or setup.
 
 ## Security model
 
-- Approvals come only from the modal dialogs. The chat view, which renders
-  model text, has no way to answer one: it runs under a strict content
-  security policy, renders text as text, and its messages are whitelisted
-  to tasks and commands.
+- The approval card is built by the extension from what the agent's gate
+  sent (the tool, its resolved arguments and the dry-run diff) and shown
+  outside the conversation, so model text cannot imitate it. The view runs
+  under a strict content security policy and renders model text as text,
+  never HTML. An answer counts only if it names the pending request and
+  its one-time token; its buttons arm after half a second, so a card that
+  appears under the cursor is not clicked by accident. Stopping the task,
+  or losing the agent, denies it. `himinbjorg.approvals` is machine-scoped,
+  so a repository cannot change where approvals are asked.
 - The agent's protocol stream carries nothing else: its other output goes
   to stderr, and commands it runs get no access to its stdin.
 - `himinbjorg.command` is machine-scoped, so a repository's
