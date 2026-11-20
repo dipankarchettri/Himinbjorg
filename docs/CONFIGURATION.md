@@ -7,6 +7,16 @@ on, which is treated as untrusted input. [`.env.example`](../.env.example)
 documents every key. After changing them, `himin doctor` checks the
 result: gateway, keys, each model tier and the sandbox.
 
+`himin setup` writes `~/.config/himinbjorg/env` for you (mode 0600) and
+the gateway it runs under `~/.local/share/himinbjorg/gateway`: a compose
+file for Bifrost and Redis Stack (compose project `himinbjorg`, bound to
+127.0.0.1, the first free port from 8099), and a Bifrost config with only
+the providers you chose, your monthly budget on the standard key, and a
+local-only key when Ollama was running. Both virtual keys and the setup
+token are random per install. Rerunning it rewrites both and restarts the
+gateway on the same port. Edit the env file by hand for anything setup
+does not ask, such as the tiers below.
+
 ## Gateway and keys
 
 | Key | Purpose |

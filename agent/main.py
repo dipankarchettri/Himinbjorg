@@ -7,6 +7,7 @@ from pathlib import Path
 
 from . import budget as budget_mod
 from . import config as config_mod
+from . import gateway as gateway_mod
 from . import llm as llm_mod
 from . import telemetry
 from .memory.ledger import LedgerEntry
@@ -41,6 +42,12 @@ def banner(settings, privacy, registry) -> str:
     ])
 
 
+def _own_gateway(settings) -> bool:
+    """Is the configured gateway the one `himin setup` wrote?"""
+    configured = config_mod.load_dotenv(config_mod.user_config_path()).get("BIFROST_BASE_URL", "")
+    return gateway_mod.installed() and configured.rstrip("/") == settings.bifrost_base_url
+
+
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     if "--serve" in args:
@@ -49,6 +56,19 @@ def main(argv: list[str] | None = None) -> int:
     if args[:1] == ["doctor"]:
         from .doctor import main as doctor_main
         return doctor_main(args[1:])
+    from . import setup as setup_mod
+    if args[:1] == ["setup"]:
+        return setup_mod.main(args[1:])
+    if args[:1] == ["gateway"]:
+        return setup_mod.gateway_main(args[1:])
+    if setup_mod.needs_setup() and not {"--version", "-h", "--help"} & set(args):
+        # The first run: nothing says where the gateway or the key is.
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            print("  himin is not set up yet. Run `himin setup` in a terminal first.")
+            return 1
+        code = setup_mod.main([])
+        if code:
+            return code
     settings = config_mod.load(argv)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     trace.init(settings.trace_dir / f"session-{stamp}.jsonl")
@@ -71,9 +91,15 @@ def main(argv: list[str] | None = None) -> int:
     if not styled:
         print(banner(settings, privacy, registry))
     down = budget_mod.gateway_error(settings)
+    if down and _own_gateway(settings):
+        # The gateway `himin setup` made: start it rather than send the user off.
+        problem = gateway_mod.up(settings.bifrost_base_url, config_mod.user_config_path(),
+                                 out=(lambda m: print(terminal.dim(m))) if styled else print)
+        down = problem or budget_mod.gateway_error(settings)
     if down:
         print(f"  The gateway at {settings.bifrost_base_url} is {down}.\n"
-              "  Start it with `make up` in the clone; `himin doctor` checks the rest.\n")
+              "  Start it with `himin gateway up` (or `make up` in a clone); "
+              "`himin doctor` checks the rest.\n")
         return 1
     quota = budget_mod.poll(settings, privacy.virtual_key)
     if not styled:

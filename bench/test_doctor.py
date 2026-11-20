@@ -148,6 +148,7 @@ def test_the_cli_stops_with_one_message_when_the_gateway_is_down(tmp_path, monke
     monkeypatch.setattr(main_mod.budget_mod, "gateway_error",
                         lambda s: "not reachable (Connection refused)")
     monkeypatch.setenv("BIFROST_BASE_URL", "http://localhost:1")
+    monkeypatch.setenv("BIFROST_VK_DEMO", "sk-bf-test")      # set up, so no first-run setup
     assert main_mod.main(["explain this", "--repo", str(tmp_path),
                           "--trace-dir", str(tmp_path / "t")]) == 1
     out = capsys.readouterr().out

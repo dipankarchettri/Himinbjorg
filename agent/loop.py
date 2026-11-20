@@ -448,8 +448,9 @@ class Agent:
             except llm_mod.GatewayUnreachable as exc:
                 trace.emit("error", {"kind": "GatewayUnreachable", "detail": str(exc)[:400]})
                 self.ledger.close_dangling_tool_calls(self._last_turn)
-                self.print(f"\n  Lost the gateway: {exc}. Start it with `make up`; "
-                           "the conversation is saved, so `himin --resume` continues it.")
+                self.print(f"\n  Lost the gateway: {exc}. Start it with `himin gateway up` "
+                           "(or `make up` in a clone); the conversation is saved, so "
+                           "`himin --resume` continues it.")
                 return "stopped: the gateway is unreachable"
             except llm_mod.AllProvidersFailed as exc:
                 self.print(f"\n  All providers failed. {exc}")

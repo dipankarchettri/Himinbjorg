@@ -53,54 +53,52 @@ evidence packs in [`evidence/`](evidence/).
 
 ## Quick start
 
-You need Docker with Compose, Python 3.11+, and either
-[Ollama](https://ollama.com) with a local model or a cloud provider key
-(Gemini, Groq or OpenRouter).
+You need Docker with Compose and Python 3.11+, plus a cloud provider key
+(Gemini has a free tier) or [Ollama](https://ollama.com) with a local
+model.
 
 ```sh
-git clone https://github.com/dipankarchettri/Himinbjorg.git himinbjorg && cd himinbjorg
-ollama pull qwen2.5:32b-instruct     # local coding model, about 20 GB (skip with a cloud key)
-cp .env.example .env                 # add provider keys here, all optional
-make venv                            # .venv with the agent installed
-make up                              # Bifrost gateway on :8099 + Redis Stack
-make doctor                          # checks gateway, keys, models, sandbox; says what to fix
-make agent TASK="what does divide() do wrong?" REPO=bench/seed
-```
-
-**Cloud only, no Ollama or GPU:** skip the `ollama pull`, add a provider
-key to `.env`, and set all three model tiers to cloud models, for example
-with a Gemini key:
-
-```sh
-GEMINI_API_KEY=...
-AGENT_MODEL_LOCAL_CODE=gemini/gemini-3.1-flash-lite
-AGENT_MODEL_CHEAP=gemini/gemini-3.1-flash-lite
-AGENT_MODEL_CAPABLE=gemini/gemini-3.5-flash
-```
-
-`make doctor` then confirms each tier answers. Confidential mode needs a
-local model. Every setting is in
-[docs/CONFIGURATION.md](docs/CONFIGURATION.md).
-
-## Usage
-
-Install `himin` with [pipx](https://pipx.pypa.io) and put your settings
-in the user config directory, then run it from any repository. An
-installed `himin` reads only that file and the environment, not the
-clone's `.env`. The gateway must be up (`make up` in the clone).
-
-```sh
-pipx install .                                         # from the clone, or:
-# pipx install git+https://github.com/dipankarchettri/Himinbjorg.git
-mkdir -p ~/.config/himinbjorg && cp .env ~/.config/himinbjorg/env
-himin doctor                                           # check the setup
-
+pipx install git+https://github.com/dipankarchettri/Himinbjorg.git
 cd ~/code/some-project
+himin
+```
+
+The first `himin` runs the setup: it asks for your provider and its key
+(typed hidden), finds Ollama if it is running, and asks for a monthly
+spending limit. It writes your settings to `~/.config/himinbjorg/env`,
+readable only by you, generates gateway keys for this install, starts the
+Bifrost gateway and Redis in Docker, and sends each model tier a real
+request to check it can call tools. After that, `himin` starts straight
+away, and starts the gateway again if it has stopped.
+
+```sh
 himin                                                  # interactive session
 himin "fix the failing test in tests/test_orders.py"   # one task, then exit
 himin --confidential "explain the auth flow"           # local models only
 himin --resume                                         # continue the last session here
+himin setup                                            # change provider, key or limit
+himin doctor                                           # check everything, with fixes
+himin gateway up | down | status                       # the gateway himin runs
 ```
+
+For a script, `GEMINI_API_KEY=... himin setup --provider gemini --no-ollama --yes`
+asks nothing. Confidential mode needs Ollama: with it running at setup,
+a second gateway key is made that reaches local models only. Every setting
+is in [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+
+**From a clone** (to run the benchmarks and `make proof`), the gateway
+and keys come from the repository instead:
+
+```sh
+git clone https://github.com/dipankarchettri/Himinbjorg.git himinbjorg && cd himinbjorg
+cp .env.example .env                 # add provider keys here, all optional
+make venv                            # .venv with the agent installed
+make up                              # Bifrost gateway on :8099 + Redis Stack
+make doctor
+make agent TASK="what does divide() do wrong?" REPO=bench/seed
+```
+
+## Usage
 
 In a session each task continues the same conversation, so "now add a
 test for it" has the context. The conversation is saved after every turn,

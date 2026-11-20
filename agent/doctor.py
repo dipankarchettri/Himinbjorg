@@ -107,7 +107,7 @@ class Doctor:
             return True
         self.add(Check("gateway", "fail",
                        f"{url} {'returned ' + str(status) if status else 'not reachable: ' + err}",
-                       "start it with `make up` in the clone, or set BIFROST_BASE_URL"))
+                       "start it with `himin gateway up` (or `make up` in a clone), or set BIFROST_BASE_URL"))
         return False
 
     def key(self, name: str, var: str, value: str, needed: bool) -> bool:
@@ -117,9 +117,19 @@ class Doctor:
             return True
         why = {401: "not a key the gateway knows", 403: "refused by the gateway"}.get(
             status, f"quota check returned {status}")
-        self.add(Check(name, "fail" if needed else "warn", f"{var}: {why}",
-                       f"set {var} to a virtual key from infra/data/config.json"
-                       + ("" if needed else " (needed only for confidential repositories)")))
+        from . import gateway as gateway_mod
+        if gateway_mod.installed():
+            # The gateway `himin setup` wrote: it has a local-only key only
+            # when Ollama was running at setup.
+            fix = ("rerun `himin setup`" if needed or var != "BIFROST_VK_CONFIDENTIAL" else
+                   "confidential mode needs local models: start Ollama, then rerun `himin setup`")
+            if not needed and var == "BIFROST_VK_CONFIDENTIAL":
+                self.add(Check(name, "info", "confidential mode is off (no local models)", fix))
+                return False
+        else:
+            fix = (f"set {var} to a virtual key from infra/data/config.json"
+                   + ("" if needed else " (needed only for confidential repositories)"))
+        self.add(Check(name, "fail" if needed else "warn", f"{var}: {why}", fix))
         return False
 
     def cost_reporting(self) -> None:
