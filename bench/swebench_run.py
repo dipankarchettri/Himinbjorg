@@ -106,13 +106,9 @@ def checkout(repo: str, commit: str, dest: Path) -> Path:
     if not mirror.exists():
         mirror.parent.mkdir(parents=True, exist_ok=True)
         _git("clone", "-q", "--mirror", f"https://github.com/{repo}.git", str(mirror))
-    if dest.exists():
-        subprocess.run(["rm", "-rf", str(dest)], check=True)
-    _git("clone", "-q", "--shared", "--no-checkout", str(mirror), str(dest))
-    _git("checkout", "-q", commit, cwd=dest)
+    from bench.benchmark import history_to
     # The agent's git tool and the diff below must see only this commit.
-    _git("remote", "remove", "origin", cwd=dest)
-    return dest
+    return history_to(mirror, commit, dest)
 
 
 def run(arms: list[str], repeats: int, limit: int | None, only: list[str] | None = None) -> int:

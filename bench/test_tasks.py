@@ -144,3 +144,32 @@ def test_a_quixbugs_program_that_loops_forever_fails_fast_and_says_where(tmp_pat
     assert time.time() - started < CASE_SECONDS + 10
     assert proc.returncode != 0
     assert "TimeoutError" in proc.stdout and "infinite loop" in proc.stdout
+
+
+def test_a_real_repository_checkout_holds_no_later_commit(tmp_path):
+    # Measured: the agent ran `git show` on the upstream fix in a clone that
+    # kept the source's branches and tags.
+    import subprocess
+
+    from bench.benchmark import history_to
+
+    def git(*args, cwd):
+        return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True,
+                              text=True).stdout.strip()
+    src = tmp_path / "src"
+    src.mkdir()
+    git("init", "-q", cwd=src)
+    for i in (1, 2):
+        (src / "f.txt").write_text(f"{i}\n")
+        git("add", "f.txt", cwd=src)
+        git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", f"c{i}", cwd=src)
+    git("tag", "v2", cwd=src)
+    first, fix = git("rev-parse", "HEAD~1", cwd=src), git("rev-parse", "HEAD", cwd=src)
+
+    dest = history_to(src, "HEAD~1", tmp_path / "work")
+    assert git("rev-parse", "HEAD", cwd=dest) == first
+    assert (dest / "f.txt").read_text() == "1\n"
+    assert git("for-each-ref", "--format=%(refname)", cwd=dest) == "refs/heads/main"
+    assert git("log", "--all", "--format=%H", cwd=dest) == first
+    assert subprocess.run(["git", "cat-file", "-e", fix], cwd=dest).returncode != 0
+    assert git("remote", cwd=dest) == ""

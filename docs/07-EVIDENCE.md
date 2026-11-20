@@ -314,8 +314,10 @@ with `python bench/pool.py evidence/scenario1-benchmark-20261119-224023.json`.
 
 **On real issues** (SWE-bench Verified, 20 single-file "<15 min fix"
 instances fixed by seed before any run, Qwen 3.8, 3 runs per arm,
-official harness, 2026-11-20): 37/60 resolved optimized against 32/60
-naive; 165,409 against 446,183 tokens per resolved issue, 63% fewer.
+official harness, 2026-11-20): 37/60 resolved optimized against 30/60
+naive; 165,409 against 475,929 tokens per resolved issue, 65% fewer.
+Corrected 2026-11-21 for two naive runs that had read the upstream fix
+through git (`docs/VERIFIED.md`).
 `bench/swebench_run.py`, `evidence/swebench-20261120-005506/`.
 
 **Against opencode** (2.3.2, same tasks, gateway and Qwen 3.8, 5 runs per

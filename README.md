@@ -59,9 +59,10 @@ task in each arm.
 | Claude Haiku 5.5, context kept whole (`AGENT_PRUNE_MODE=budget`) | 69/70 vs 68/70 | 82% lower cost ($0.00171) |
 
 On 20 real GitHub issues from SWE-bench Verified (Qwen 3.8, 3 runs
-each) it resolved 37/60 against 32/60 with the levers off, using 63% fewer
-tokens per resolved issue; a repeat on a later build resolved 36/60 at 58%
-fewer. On the same model and tasks, opencode used 5.6
+each) it resolved 37/60 against 30/60 with the levers off, using 65% fewer
+tokens per resolved issue; a repeat on a later build resolved 35/60 at 59%
+fewer. (Corrected: three runs that had read the upstream fix through git
+no longer count as resolved; see `docs/VERIFIED.md`.) On the same model and tasks, opencode used 5.6
 times its tokens. On 28 outside programs (QuixBugs) it passed 84/84
 against 82/84 with 24% fewer tokens. Every table, its conditions and the runs that went the
 other way are in [docs/RESULTS.md](docs/RESULTS.md), backed by the

@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from agent.config import load_dotenv                 # noqa: E402
-from bench.benchmark import ARMS, run_one, summarise  # noqa: E402
+from bench.benchmark import ARMS, history_to, run_one, summarise  # noqa: E402
 
 CLICK_URL = "https://github.com/pallets/click.git"
 CLICK_HEAD = "08b803c"          # the clone's HEAD when the tasks were chosen
@@ -290,10 +290,7 @@ def fix_test_files(task: ClickTask) -> list[str]:
 
 def prepare(task: ClickTask, dest: Path, at: str | None = None) -> Path:
     """A clean checkout at fix^ (or `at`), with a .venv whose path finds src/."""
-    if dest.exists():
-        shutil.rmtree(dest)
-    sh(["git", "clone", "-q", "--shared", str(BASE), str(dest)], CACHE)
-    sh(["git", "checkout", "-q", at or f"{task.fix}^"], dest)
+    history_to(BASE, at or f"{task.fix}^", dest)
     sh(["git", "config", "user.email", "bench@localhost"], dest)
     sh(["git", "config", "user.name", "bench"], dest)
     venv = dest / ".venv"
@@ -313,7 +310,10 @@ def grade(repo: Path, task: ClickTask) -> tuple[bool, str]:
     """Add the fix's tests (replacing any edits to those files) and run them,
     then the whole suite."""
     files = fix_test_files(task)
-    sh(["git", "checkout", "-q", f"{task.fix}^", "--", *files], repo)
+    # Named by hash: the checkout holds no commit after the bug's, the fix
+    # included, so "<fix>^" does not resolve there.
+    base = sh(["git", "rev-parse", f"{task.fix}^"], BASE).stdout.strip()
+    sh(["git", "checkout", "-q", base, "--", *files], repo)
     patch = sh(["git", "show", "--format=", task.fix, "--", *files], BASE).stdout
     applied = subprocess.run(["git", "apply", "-"], cwd=repo, input=patch, text=True,
                              capture_output=True)

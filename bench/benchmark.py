@@ -75,6 +75,31 @@ ARMS = {
 }
 
 
+def history_to(src: Path, commit: str, dest: Path) -> Path:
+    """A repository at `commit` holding that commit and its ancestors only:
+    no remote, no tags, no later branch, no object of a later commit.
+
+    A clone kept every ref of the source. Measured: on SWE-bench and click
+    the agent ran `git log --all` and `git show` on the fix itself, and
+    five graded runs that passed had read the upstream fix.
+    """
+    import subprocess
+
+    def git(*args, cwd=dest):
+        return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True,
+                              text=True, stdin=subprocess.DEVNULL).stdout
+    sha = git("rev-parse", "--verify", f"{commit}^{{commit}}", cwd=src).strip()
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True)
+    git("init", "-q")
+    # A fetch, not a clone: only what `sha` reaches is copied.
+    git("fetch", "-q", "--no-tags", str(src), sha)
+    git("checkout", "-q", "-B", "main", sha)
+    (dest / ".git" / "FETCH_HEAD").unlink(missing_ok=True)
+    return dest
+
+
 def build_settings(repo: Path, levers: LeverFlags, env: dict,
                    cache_scope: str = "", prune_mode: str = "turns") -> Settings:
     return Settings(

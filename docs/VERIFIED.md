@@ -1304,8 +1304,8 @@ xarray and pytest, graded by the official harness (`swebench` 5.0.2,
 instances were fixed before any run by `bench/swebench_run.py select`:
 Verified's "<15 min fix" difficulty and a gold patch touching one file
 (188 eligible of 500), then `random.Random(20261119).sample(..., 20)`.
-The list is `bench/swebench_subset.json`. The gold patch is never shown
-to the agent; the issue text is the whole prompt, plus a note that the
+The list is `bench/swebench_subset.json`. The gold patch is not in the
+prompt; the issue text is the whole prompt, plus a note that the
 repository's dependencies are not installed, so its tests may not run.
 
 Every tier `vllm/qwen3.8-27b-fp8`, temperature 0.7, 30-turn limit, two
@@ -1339,7 +1339,19 @@ sympy__sympy-23534                  3/3    3/3    248,857    100,098
 ALL                                32/60  37/60
 ```
 
-- **Resolved: 37/60 optimized, 32/60 naive.** Instances resolved at
+- **Correction (2026-11-21): the fix was reachable through git.** Each
+  checkout was a clone of a full mirror, so the upstream history,
+  the fix included, was one `git log --all` away. Scanning every trace
+  for git commands that name a later commit: two resolved naive runs had
+  read the merged fix (`git show`), sphinx 9230 run 2 (`b7f7425`, "Merge
+  pull request #9230") and sphinx 10449 run 3 (`d7eb5c1`, "Merge pull
+  request #10449"). No optimized run did. Counted as not resolved:
+  **naive 30/60, 475,929 tokens per resolved issue; optimized 37/60,
+  165,409, 65% fewer.** Naive instances resolved at least once: 13, and
+  sphinx 10449 is no longer one naive won. The table above is as the
+  harness graded it. `bench/benchmark.py` `history_to` now gives the
+  agent only the history up to the base commit.
+- **Resolved, as graded: 37/60 optimized, 32/60 naive.** Instances resolved at
   least once: 16 and 15 of 20. optimized resolved more on seven
   instances, naive on four (django 14752 and 15315, sympy 19637, sphinx
   10449).
@@ -1357,7 +1369,9 @@ ALL                                32/60  37/60
   numbers on the public leaderboard.
 - A pilot on two of the instances, one run per arm, resolved both in
   both arms: 16,164 tokens per resolved issue optimized against 81,434
-  (`evidence/swebench-20261120-005220/`).
+  (`evidence/swebench-20261120-005220/`). The naive run of django 11163
+  had read the fix (`git show 1ffddfc233`); without it, naive resolved
+  1 of 2.
 
 ### A repeat of the optimized arm on a later build (2026-11-20)
 
@@ -1392,6 +1406,10 @@ ALL                                37/60  36/60
   6.77M tokens in all against 6.12M, mean turns per run 16.6 against
   14.8, median tokens per run 80,629 against 73,190. Against the naive
   arm of the first run (446,183) it is 58% fewer, not 63%.
+- **Correction (2026-11-21):** sympy 23534 run 2 had read the fix (`git
+  show 404fe9c645`, "Merge pull request #23534"). Without it: 35/60,
+  193,501 tokens per resolved issue, 59% fewer than the corrected naive
+  arm (475,929).
 - **Not separated:** whether the new listing or run-to-run variation
   explains the extra turns. Two of the eight changed instances
   (sphinx 9230, xarray 4075) also roughly doubled in tokens; the

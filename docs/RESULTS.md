@@ -49,9 +49,14 @@ easiest, single-file fixes, graded by the official harness. Qwen 3.8
 
 | Arm | Resolved | Tokens per resolved issue |
 | --- | --- | --- |
-| naive | 32/60 | 446,183 |
-| levers on | 37/60 | 165,409 (63% fewer) |
-| levers on, repeated on a later build | 36/60 | 188,126 (58% fewer) |
+| naive | 30/60 | 475,929 |
+| levers on | 37/60 | 165,409 (65% fewer) |
+| levers on, repeated on a later build | 35/60 | 193,501 (59% fewer) |
+
+Corrected 2026-11-21: the checkouts kept the upstream history, and three
+resolved runs (two naive, one in the repeat) had read the fix with `git
+show`; they count as not resolved here. The harness now gives the agent
+only the history up to the issue's commit.
 
 Five naive runs outgrew the model's 32k window and were refused; no
 levers-on run did. The repeat changed the opening listing of large
