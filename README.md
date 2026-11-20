@@ -16,9 +16,10 @@ diffs, keeps the context lean and routes to the cheapest model that can
 do the job. Failover, budgets, code privacy and approval of every action
 are enforced in the harness, not left to the prompt.
 
-- **Fewer tokens, same results.** 84% fewer tokens per completed task
-  than the same agent with its levers off, and 71% to 82% lower cost on a
-  paid provider ([results](#results)).
+- **Fewer tokens, same results.** On real bugs in
+  [click](https://github.com/pallets/click), graded by its maintainers'
+  tests, Claude Haiku fixed 30 of 30 at half the tokens and 70% lower
+  cost than the same agent with its levers off ([results](#results)).
 - **You approve every change.** Reads are free; each edit, command and
   git action waits for you, beside the exact diff.
 - **Keeps working when providers fail.** Fallback across OpenAI,
@@ -31,8 +32,23 @@ are enforced in the harness, not left to the prompt.
 
 ## Results
 
-Gateway-reported, on 7 benchmark tasks, 10 runs per task in each arm.
-*naive* is the same agent with every token lever off.
+**On a real project.** Six bugs the [click](https://github.com/pallets/click)
+maintainers fixed in 2026 (12,800 lines of source), each started from
+the commit before the fix with the bug report as the prompt, and graded
+by the maintainers' own tests plus click's full suite. Claude Haiku 5.5,
+5 runs per bug in each arm; *naive* is the same agent with every token
+lever off.
+
+| | Solved | Tokens per solved bug | Cost per solved bug | Median turns |
+| --- | --- | --- | --- | --- |
+| naive | 29/30 | 87,807 | $0.0110 | 11 |
+| levers on | **30/30** | **43,174 (51% fewer)** | **$0.0032 (70% cheaper)** | 6.5 |
+
+Per bug, with the one where the levers used more tokens, in
+[docs/RESULTS.md](docs/RESULTS.md#a-real-project-palletsclick).
+
+**On the benchmark tasks.** Gateway-reported, on 7 tasks, 10 runs per
+task in each arm.
 
 | Model | Passed (levers on vs naive) | Per completed task |
 | --- | --- | --- |
@@ -100,7 +116,12 @@ make agent TASK="what does divide() do wrong?" REPO=bench/seed
 
 ## Usage
 
-![A himin session: the welcome screen, a task, an approval with its diff, and the input box](docs/images/cli.png)
+![himin fixing a real click bug with Claude Haiku: it finds the cause, shows the diff for approval, runs the tests and explains the fix, for $0.0027](docs/images/cli.png)
+
+*A real session on [click](https://github.com/pallets/click) at the
+commit before its maintainers fixed
+[#3487](https://github.com/pallets/click/issues/3487). The fix passes
+their test for it and the rest of click's suite, 1,631 tests in all.*
 
 `himin` opens with the repository, mode, models, sandbox and budget,
 then a bordered input box: Enter sends, Alt+Enter or a trailing `\`
@@ -150,7 +171,7 @@ path. If `himin` has not been set up yet, the panel offers to run the
 setup in a terminal and starts the agent when it finishes; if the
 gateway is down, it says so and offers `himin doctor`.
 
-![The Himinbjorg panel in VS Code after a fix: tool steps, approvals, the answer and its cost](docs/images/vscode-panel.png)
+![The panel in VS Code after Claude Haiku fixed a click bug: tool steps, approvals, the answer and its cost](docs/images/vscode-panel.png)
 
 The panel shows the mode, the models and a budget bar along the top, and
 undo, cost and new-conversation buttons. Each tool call is one line with
@@ -159,7 +180,11 @@ button on code. Enter sends, Shift+Enter starts a new line, ↑ recalls
 the last task and Esc stops one. It follows your theme, light, dark or
 high contrast.
 
-![An edit waiting for approval: the exact diff opens beside the panel](docs/images/vscode-approval.png)
+![An edit to click's core.py waiting for approval: the agent's reasoning in the panel, the exact diff beside it](docs/images/vscode-approval.png)
+
+*Both from one real session on click, fixing the double brackets its
+maintainers fixed in `762c97e`; the fix passes their tests and the rest
+of click's suite, 1,658 tests in all.*
 
 Approvals come only from native modal dialogs, never from the panel that
 shows model text, and the exact diff opens beside the dialog. Failover
