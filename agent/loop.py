@@ -882,8 +882,13 @@ task in this reply."""
             # tokens of a three-file review went on two such calls. Unused
             # room costs nothing, so a cloud model gets 16k for a question;
             # a local one keeps 4k, its prompt and limit sharing one window.
-            max_tokens=min((1200 if self.settings.levers.diff_writes and mutating
-                            else 4096 if local else self.MAX_OUT) * self._out_scale, self.MAX_OUT),
+            # The 1,200 cap for edits is local only. Measured on two click
+            # features (DeepSeek, 6 runs): every reply that would have held
+            # the patch was cut at 1,200 or 2,400 tokens of reasoning, no
+            # run made an edit, and each drifted into web searches.
+            max_tokens=min((self.MAX_OUT if not local
+                            else 1200 if self.settings.levers.diff_writes and mutating
+                            else 4096) * self._out_scale, self.MAX_OUT),
             temperature=self.settings.temperature,
             on_text=None if tools_off else self.on_text,
             # Tools stay declared: a history with tool calls and no tool

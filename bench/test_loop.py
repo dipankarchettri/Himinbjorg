@@ -1063,6 +1063,12 @@ def test_a_cloud_model_gets_room_for_reasoning_and_a_larger_context(repo):
     assert agent.ledger.context_budget == agent.settings.cloud_context_budget == 64_000
 
 
+def test_a_cloud_model_gets_room_for_an_edit_too(repo):
+    agent, client = make_agent(repo, [([], "done")])
+    _cloud(agent).run("fix divide() in calc.py")
+    assert client.specs[0].max_tokens == Agent.MAX_OUT
+
+
 def test_a_local_model_keeps_its_window(repo):
     agent, client = make_agent(repo, [([], "It divides.")])
     agent.run("what does divide do?")

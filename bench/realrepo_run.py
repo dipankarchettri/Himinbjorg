@@ -359,6 +359,9 @@ def run(tasks: list[ClickTask], arms: list[str], repeats: int, resume: Path | No
            **{k: v for k, v in os.environ.items()
               if k.startswith(("BENCH_", "AGENT_", "BIFROST_"))}}
     env.setdefault("BENCH_MAX_TURNS", "30")
+    # No web search: every fix is public. Measured: with search on, the
+    # feature runs searched for the upstream change, up to 13 times a run.
+    env["TAVILY_API_KEY"] = ""
     stamp = time.strftime("%Y%m%d-%H%M%S")
     rows, rerun = [], []
     if resume:

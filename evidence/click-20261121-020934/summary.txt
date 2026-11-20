@@ -1,0 +1,26 @@
+
+task             arm         ok   tokens  turns    secs
+------------------------------------------------------------
+no-such-command  optimized    N   360039     23    90.0
+help-option-cls  optimized    N   378676     23   202.9
+no-such-command  optimized    N   376772     24    90.8
+help-option-cls  optimized    N   312144     23   152.1
+no-such-command  optimized    N   369202     24   153.7
+help-option-cls  optimized    N   315770     23   124.8
+
+PER TASK: success rate, median tokens over PASSING runs
+------------------------------------------------------------------------
+  no-such-command  naive 0/0 med=n/a        optimized  0/3 med=n/a        not comparable (an arm never passed)
+  help-option-cls  naive 0/0 med=n/a        optimized  0/3 med=n/a        not comparable (an arm never passed)
+
+TOKENS PER COMPLETED TASK: all tokens spent / runs that passed
+------------------------------------------------------------------------
+  no-such-command  naive 0/0       n/a    optimized  0/3       n/a    n/a (an arm never passed)
+  help-option-cls  naive 0/0       n/a    optimized  0/3       n/a    n/a (an arm never passed)
+  ALL              naive 0/0       n/a    optimized  0/6       n/a    n/a (an arm never passed)
+
+COST PER COMPLETED TASK: gateway-priced dollars / runs that passed
+------------------------------------------------------------------------
+  no-such-command  naive 0/0 n/a            optimized  0/3 n/a            n/a
+  help-option-cls  naive 0/0 n/a            optimized  0/3 n/a            n/a
+  ALL              naive 0/0 n/a            optimized  0/6 n/a            n/a
