@@ -2,7 +2,7 @@
   "name": "himinbjorg",
   "displayName": "Himinbjorg",
   "description": "Token-efficient coding agent on the Bifrost LLM gateway, with diff-previewed approvals, failover, budgets and local-only confidential mode.",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "publisher": "essential-engineers",
   "license": "MIT",
   "repository": {
