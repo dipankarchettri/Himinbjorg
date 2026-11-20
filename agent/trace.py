@@ -1,9 +1,8 @@
 """Append-only JSONL session trace.
 
-Three jobs, one file: session durability (resume after an outage), the
-evidence harness's data source, and the security audit log. Written
-unbuffered because a trace that loses its last line on a crash is useless
-for the first and third of those.
+Two jobs, one file: the evidence harness's data source and the security
+audit log. Written unbuffered because an audit log that loses its last
+line on a crash is useless. Resuming a session is agent/session.py.
 """
 from __future__ import annotations
 

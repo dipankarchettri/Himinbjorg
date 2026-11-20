@@ -279,8 +279,9 @@ def emit(event_type: str, payload: dict) -> None
 Event types: `session_start`, `llm_call`, `gate_decision`, `tool_result`,
 `routing_decision`, `provider_change`, `budget_event`, `error`, `session_end`.
 
-The trace is the session-durability mechanism, the benchmark's data source, and
-the security audit log. One file, three jobs, written once.
+The trace is the benchmark's data source and the security audit log, written
+once. Resuming a session uses `agent/session.py`, which saves the conversation
+after every turn.
 
 ---
 

@@ -123,7 +123,10 @@ present in the graph to be chosen. Absence beats refusal.
 
 ## Process and state
 
-Single process, single repository, synchronous loop. Session state is in memory
-with an append-only JSONL trace on disk for the evidence harness. No database,
-no server, no concurrency. Every one of those would be a reasonable production
-choice and all are wrong for 24 hours.
+Single process, single repository, synchronous loop. The conversation is
+saved to one JSON file per repository and mode after every turn
+(`agent/session.py`), so `himin --resume` continues it after a crash, and the
+undo journal is saved before each file write. An append-only JSONL trace on
+disk feeds the evidence harness and is the audit log. No database, no
+concurrency: the VS Code extension talks to the same loop over JSON lines
+(`agent/server.py`).
