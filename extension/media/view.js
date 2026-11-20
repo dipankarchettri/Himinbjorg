@@ -126,7 +126,38 @@
         para = [];
       }
     };
+    let table = null;
+    const cells = (line) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|");
     for (const line of lines) {
+      if (/^\s*\|/.test(line)) {
+        // A Markdown table: header row, rule, body rows. Built with DOM
+        // calls like everything else here; model text is never HTML.
+        flush();
+        list = null;
+        if (/^\s*\|?\s*:?-{2,}/.test(line)) continue;        // the |---|---| rule
+        if (!table) {
+          const wrap = el("div", "table-wrap");
+          table = el("table");
+          wrap.appendChild(table);
+          parent.appendChild(wrap);
+          const tr = el("tr");
+          for (const c of cells(line)) { const th = el("th"); inline(th, c.trim()); tr.appendChild(th); }
+          table.appendChild(el("thead")).appendChild(tr);
+          table.appendChild(el("tbody"));
+          continue;
+        }
+        const tr = el("tr");
+        for (const c of cells(line)) { const td = el("td"); inline(td, c.trim()); tr.appendChild(td); }
+        table.lastChild.appendChild(tr);
+        continue;
+      }
+      table = null;
+      if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {     // a horizontal rule
+        flush();
+        list = null;
+        parent.appendChild(el("hr"));
+        continue;
+      }
       const bullet = /^\s*[-*]\s+(.*)$/.exec(line);
       const number = /^\s*\d+[.)]\s+(.*)$/.exec(line);
       const heading = /^#{1,4}\s+(.*)$/.exec(line);

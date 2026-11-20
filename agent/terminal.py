@@ -114,16 +114,18 @@ class Markdown:
 
     Fed one whitespace-free token at a time (and each newline), so a code
     span or bold run that crosses words or stream chunks still works:
-    `code` is coloured, **bold** is bold, a heading is bold, a list
-    marker becomes a bullet, and a fenced block is coloured without its
-    fences. Anything else is left as written.
+    `code` is coloured, **bold** is bold, *emphasis* is italic, a heading
+    is bold, a list marker becomes a bullet, --- becomes a rule, and a
+    fenced block is coloured without its fences. Tables are drawn by
+    table(). Anything else is left as written.
     """
 
     CODE = f"\x1b[38;5;{SKY}m"
     FG_OFF, BOLD_ON, BOLD_OFF = "\x1b[39m", "\x1b[1m", "\x1b[22m"
+    ITALIC_ON, ITALIC_OFF = "\x1b[3m", "\x1b[23m"
 
     def __init__(self) -> None:
-        self.code = self.strong = self.heading = self.fence = self.skip = False
+        self.code = self.strong = self.em = self.heading = self.fence = self.skip = False
         self.bol = True                 # nothing but spaces yet on this line
         self.eat_space = False          # the space after a dropped "#"
 
@@ -140,6 +142,8 @@ class Markdown:
                     return self.BOLD_ON
                 if tok in ("-", "*", "+"):
                     return fg(GREY, "•")
+                if re.fullmatch(r"-{3,}|\*{3,}|_{3,}", tok):     # a horizontal rule
+                    return dim("─" * 24)
         if self.skip:
             return ""
         if self.fence:
@@ -154,6 +158,14 @@ class Markdown:
                 self.strong = not self.strong
                 out.append(self.BOLD_ON if self.strong or self.heading else self.BOLD_OFF)
                 i += 2
+            elif (tok[i] == "*" and not self.code
+                  and ((not self.em and i == 0 and len(tok) > 1)
+                       or (self.em and i > 0))):
+                # *emphasis*: opened at a word's start, closed inside or at its
+                # end, so a lone "*" or a*b is left alone.
+                self.em = not self.em
+                out.append(self.ITALIC_ON if self.em else self.ITALIC_OFF)
+                i += 1
             else:
                 out.append(tok[i])
                 i += 1
@@ -173,9 +185,100 @@ class Markdown:
 
     def close(self) -> str:
         """Reset whatever an unfinished answer left open."""
-        styled = self.code or self.strong or self.heading or self.fence
+        styled = self.code or self.strong or self.em or self.heading or self.fence
         self.__init__()
         return "\x1b[0m" if styled else ""
+
+
+_TABLE_RULE = re.compile(r"^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
+_CELL_RUN = re.compile(r"(`[^`]*`|\*\*[^*]+\*\*)")
+
+
+def _cell_words(cell: str) -> list[list[tuple[str, str]]]:
+    """The cell's words, each a list of (text, style) segments, style
+    "code", "bold" or "": `None`, is one word of two segments."""
+    words: list[list[tuple[str, str]]] = []
+    glue = False                        # the next segment continues the last word
+    for run in _CELL_RUN.split(cell):
+        if not run:
+            continue
+        if run.startswith("`") and run.endswith("`") and len(run) > 1:
+            style, run = "code", run[1:-1]
+        elif run.startswith("**") and run.endswith("**") and len(run) > 4:
+            style, run = "bold", run[2:-2]
+        else:
+            style = ""
+        for piece in re.split(r"(\s+)", run):
+            if not piece:
+                continue
+            if piece.isspace():
+                glue = False
+                continue
+            if glue and words:
+                words[-1].append((piece, style))
+            else:
+                words.append([(piece, style)])
+            glue = True
+    return words
+
+
+def _width(word: list[tuple[str, str]]) -> int:
+    return sum(len(t) for t, _ in word)
+
+
+def _wrap_cell(cell: str, width: int, header: bool) -> list[str]:
+    lines, cur, cur_w = [], [], 0
+    for word in _cell_words(cell):
+        w = _width(word)
+        if w > width:                               # wider than the column: cut it
+            text, style = "".join(t for t, _ in word), word[0][1]
+            if cur:
+                lines.append((cur, cur_w))
+                cur, cur_w = [], 0
+            while len(text) > width:
+                lines.append(([[(text[:width], style)]], width))
+                text = text[width:]
+            word, w = [(text, style)], len(text)
+        add = w + (1 if cur else 0)
+        if cur and cur_w + add > width:
+            lines.append((cur, cur_w))
+            cur, cur_w, add = [], 0, w
+        cur.append(word)
+        cur_w += add
+    if cur or not lines:
+        lines.append((cur, cur_w))
+
+    def seg(t: str, s: str) -> str:
+        return fg(SKY, t) if s == "code" else bold(t) if s == "bold" or header else t
+    return [" ".join("".join(seg(t, s) for t, s in word) for word in words) + " " * (width - w)
+            for words, w in lines]
+
+
+def table(rows: list[str], columns: int) -> str:
+    """A Markdown table drawn with aligned columns, wrapped to the terminal."""
+    cells = [[c.strip() for c in r.strip().strip("|").split("|")] for r in rows
+             if r.strip() and not _TABLE_RULE.match(r)]
+    if not cells:
+        return ""
+    n = max(len(r) for r in cells)
+    cells = [r + [""] * (n - len(r)) for r in cells]
+    want = [max(sum(_width(w) for w in _cell_words(r[i])) + max(0, len(_cell_words(r[i])) - 1)
+                for r in cells) for i in range(n)]
+    room = max(n * 4, columns - 3 * (n - 1) - 1)
+    widths = [max(1, w) for w in want]
+    while sum(widths) > room:                       # narrow the widest column first
+        i = widths.index(max(widths))
+        widths[i] -= 1
+    sep = dim(" │ ")
+    out = []
+    for k, row in enumerate(cells):
+        wrapped = [_wrap_cell(c, widths[i], header=k == 0) for i, c in enumerate(row)]
+        for j in range(max(len(w) for w in wrapped)):
+            out.append(sep.join(w[j] if j < len(w) else " " * widths[i]
+                                for i, w in enumerate(wrapped)).rstrip())
+        if k == 0:
+            out.append(dim("─┼─".join("─" * w for w in widths)))
+    return "\n".join(out) + "\n"
 
 
 # ---------------------------------------------------------- live lines

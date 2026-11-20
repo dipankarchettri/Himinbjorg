@@ -138,6 +138,8 @@ class LiveText:
         self.col = 0
         self.word = ""          # held back until it ends, so it can move to the next line whole
         self.md = terminal.Markdown()
+        self.table: str | None = None   # a Markdown table's rows, drawn once complete
+        self.table_bol = False
 
     def text(self, piece: str) -> None:
         if not self.styled:
@@ -157,6 +159,22 @@ class LiveText:
 
     def _put(self, part: str) -> None:
         if not part:
+            return
+        if self.table is not None:
+            if part == "\n" and not self.table_bol:
+                self.table += part
+                self.table_bol = True
+                return
+            if part.isspace() and part != "\n":
+                self.table += part
+                return
+            if not part.isspace() and (part.startswith("|") or not self.table_bol):
+                self.table += part
+                self.table_bol = False
+                return
+            self._draw_table()          # a blank line or a line that is not a row
+        if part.startswith("|") and self.md.bol and not self.md.fence:
+            self.table, self.table_bol = part, False
             return
         if part == "\n":
             fence_line = self.md.skip and self.col == 0
@@ -182,11 +200,20 @@ class LiveText:
         if self.col > cols:                 # a word longer than a line: the terminal wrapped it
             self.col %= cols
 
+    def _draw_table(self) -> None:
+        cols = shutil.get_terminal_size((80, 24)).columns
+        if self.col:                    # after the answer's "● ": start on a line of its own
+            self.out.write("\n")
+        self.out.write(terminal.table(self.table.split("\n"), cols))
+        self.table, self.table_bol, self.col = None, False, 0
+
     def finish(self) -> None:
         """Write the last word of an answer, and reset its styles."""
         if self.word:
             self._put(self.word)
             self.word = ""
+        if self.table is not None:
+            self._draw_table()
         if self.styled:
             self.out.write(self.md.close())
         self.out.flush()

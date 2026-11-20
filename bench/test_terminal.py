@@ -174,3 +174,41 @@ def test_a_streamed_answer_is_drawn_as_markdown_not_shown_raw():
 
 def test_piped_output_keeps_the_markdown():
     assert _streamed(_MD, styled=False).strip() == _MD
+
+
+_TABLE = """Before.
+
+| `message` | old | new |
+|---|---|---|
+| `None`, nl=True | `None` → `""` | `""` → `"\\n"` |
+| `b""` | a long explanation of what happened to empty bytes before the fix | fixed |
+
+After."""
+
+
+def test_a_streamed_table_is_drawn_with_aligned_columns(monkeypatch):
+    import os
+    from agent import main as main_mod
+    monkeypatch.setattr(main_mod.shutil, "get_terminal_size", lambda *a: os.terminal_size((60, 24)))
+    text = plain(_streamed(_TABLE, styled=True, step=4))
+    lines = text.splitlines()
+    rows = [l for l in lines if "│" in l]
+    assert rows and "|" not in text and "---" not in text
+    assert len({l.index("│") for l in rows}) == 1                   # first column aligned
+    assert all(len(l) <= 60 for l in lines)                           # wrapped to fit
+    assert "None, nl=True" in text                                    # no space before ","
+    assert any(set(l) <= set("─┼") and l for l in lines)              # the header rule
+    assert lines[-1] == "After." and "Before." in lines[1]
+
+
+def test_a_table_at_the_end_of_an_answer_is_still_drawn():
+    text = plain(_streamed("| a | b |\n|---|---|\n| 1 | 2 |", styled=True))
+    assert "1 │ 2" in text and "|" not in text
+
+
+def test_emphasis_and_a_rule_are_drawn_and_lone_stars_left_alone():
+    raw = _streamed("The old code *did* match.\n\n---\n\nSo 2*3 and a * b stay.", styled=True)
+    text = plain(raw)
+    assert "\x1b[3mdid\x1b[23m" in raw and "*did*" not in text
+    assert "───" in text and "---" not in text
+    assert "2*3" in text and "a * b" in text

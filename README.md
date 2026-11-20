@@ -128,8 +128,9 @@ then a bordered input box: Enter sends, Alt+Enter or a trailing `\`
 starts a new line, ↑ recalls an earlier task, Ctrl-C clears the box and
 Ctrl-D quits. Each tool call is one line with its result under it, an
 approval shows the exact diff in colour, and answers are formatted as
-they stream: code in colour, bold, lists and code blocks, without the
-Markdown marks (piped output keeps them). A greeting gets a reply
+they stream: code in colour, bold and italics, lists, tables with
+aligned columns, and code blocks, without the Markdown marks (piped
+output keeps them). A greeting gets a reply
 without a model call.
 
 In a session each task continues the same conversation, so "now add a
@@ -177,7 +178,7 @@ gateway is down, it says so and offers `himin doctor`.
 
 The panel shows the mode, the models and a budget bar along the top, and
 undo, cost and new-conversation buttons. Each tool call is one line with
-a green or red dot and its result; answers are formatted, with a copy
+a green or red dot and its result; answers are formatted, tables included, with a copy
 button on code. Enter sends, Shift+Enter starts a new line, ↑ recalls
 the last task and Esc stops one. It follows your theme, light, dark or
 high contrast.
