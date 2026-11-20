@@ -585,13 +585,13 @@ def test_a_repeated_read_gets_the_stub_once_then_the_file(repo):
 
 def test_no_stub_once_the_earlier_result_has_been_pruned(repo):
     # The stub says the result is earlier in the conversation. Once pruning
-    # has elided it, that is false, so the call just runs. (An edit task:
-    # a read-only one keeps its reads, below.)
+    # has elided it, that is false, so the call just runs. (A question that
+    # does not name the file: one that does, and an edit, keep their reads.)
     read = lambda: ([call("read_file", path="calc.py")], "")   # noqa: E731
     other = [([call("grep", pattern=f"x{i}")], "") for i in range(6)]
     agent, _ = make_agent(repo, [read(), *other, read(), ([], "done"), ([], "done")])
     assert agent.ledger.pruning_enabled
-    assert agent.run("fix calc.py") == "done"
+    assert agent.run("explain the code") == "done"
     assert not any("identical call already made" in r for r in tool_results(agent))
 
 
@@ -1175,3 +1175,15 @@ def test_a_model_cannot_override_the_repository_or_the_sandbox(repo, tmp_path, m
     results = [m["content"] for m in client.specs[-1].messages if m["role"] == "tool"]
     assert "TOKEN=hunter2" not in results[0] and "no matches" in results[0]
     assert seen["cwd"] == str(repo.resolve()) or seen["cwd"] == str(repo)
+
+
+def test_an_edit_task_keeps_its_reads_until_it_ends(repo):
+    # Five runs of a multi-file click feature made no edit in 25 turns: each
+    # file read expired before the last one was read, so the model read
+    # exceptions.py nine times.
+    read = lambda p: ([call("read_file", path=p)], "")   # noqa: E731
+    other = [([call("grep", pattern=f"x{i}")], "") for i in range(6)]
+    agent, client = make_agent(repo, [read("calc.py"), *other, ([], "done"), ([], "done")])
+    agent.run("add a power function")
+    tools = [m["content"] for m in client.specs[-1].messages if m["role"] == "tool"]
+    assert "def divide" in tools[0] and tools[1].startswith("[elided")

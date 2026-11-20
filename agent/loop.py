@@ -410,8 +410,8 @@ class Agent:
     def _run_task(self, task: str, base: int) -> str:
 
         mutating = is_mutating(task)
-        self.ledger.keep_reads_from = None if mutating else base
-        self.ledger.keep_paths = named_paths(task)
+        self.ledger.keep_reads_from = base
+        self.ledger.keep_paths = None if mutating else named_paths(task)
         self._git_allowed = bool(GIT_HINT.search(task))
         # Not beside git_op, which does the same reads and more.
         self._git_read_allowed = (bool(CHANGES_HINT.search(task))

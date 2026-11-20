@@ -62,15 +62,17 @@ class Ledger:
     # replaces old turns with a summary near the budget (Agent._compact).
     mode: str = "turns"
     entries: list[LedgerEntry] = field(default_factory=list)
-    # While a read-only task runs: its first turn and the files it names,
-    # whose reads are kept to the answer. Eliding them after three turns
-    # saves tokens on an edit, whose old reads are stale anyway, but on a
-    # review of named files they are the work: DeepSeek re-read ledger.py
-    # six times in one, each a whole call with the context resent. Keeping
-    # every read instead grew the context with each file it wandered into
-    # (326k tokens against 230k), so only the named ones are kept.
+    # The current task's first turn: its file reads are kept to its end,
+    # instead of being elided after three turns. A write supersedes the
+    # reads of its file, so what stays is never stale. On a multi-file
+    # feature in click (DeepSeek V4.1 Flash), the model needed three or
+    # four files at once and each expired before the last was read: it
+    # read exceptions.py nine times and made no edit in 25 turns, five runs
+    # out of five. On a question only the files it names are kept: keeping
+    # every read there grew the context with each file the model wandered
+    # into (326k tokens against 230k on one review). None: every file.
     keep_reads_from: int | None = None
-    keep_paths: tuple[str, ...] = ()
+    keep_paths: tuple[str, ...] | None = ()
     elided_tokens: int = 0      # left out of the latest request
     elided_total: int = 0       # left out, summed over the requests sent
     compacted_tokens: int = 0   # replaced by summaries, over the session
@@ -91,8 +93,10 @@ class Ledger:
         return (h // step) * step
 
     def keeps(self, path: str | None) -> bool:
-        return (self.keep_reads_from is not None and bool(path)
-                and any(path == p or path.endswith("/" + p) for p in self.keep_paths))
+        if self.keep_reads_from is None or not path:
+            return False
+        return self.keep_paths is None or any(
+            path == p or path.endswith("/" + p) for p in self.keep_paths)
 
     def read_horizon(self, current_turn: int, path: str | None = None) -> int:
         """Reads of `path` from turns before this are elided."""
