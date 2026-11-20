@@ -35,8 +35,8 @@ Memory (file hashes, context ledger)
 
 1. **Loop** decides a model call is needed and assembles a minimal message list
    from the context ledger.
-2. **Router** classifies the step into a tier (local / cheap / capable) using
-   heuristics first, an LLM classifier only when heuristics are inconclusive.
+2. **Router** puts the task in a tier (local / cheap / capable) by
+   heuristics on its text, with no model call.
 3. **PrivacyMode** is consulted. In confidential mode the router's answer is
    overridden to the local tier unconditionally.
 4. **LLMClient** builds the request: model string with explicit `provider/`

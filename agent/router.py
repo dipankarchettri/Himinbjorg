@@ -1,9 +1,9 @@
 """Task tier routing.
 
-The router must not cost more than it saves, so heuristics run first and
-an LLM classification happens only when they are inconclusive. That
-classification is itself a cacheable single-message call on the local
-tier, which makes it effectively free after the first occurrence.
+The router must not cost more than it saves, so it is heuristics on the
+task's text alone: no model call. A wrong guess upward costs money; a
+wrong guess downward is caught by the correctness guards in the loop,
+which escalate one tier at a time (escalate()).
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ class Tier(Enum):
 class RoutingDecision:
     tier: Tier
     reason: str
-    method: str          # heuristic | classified | forced_confidential | naive | escalated
+    method: str          # heuristic | forced_confidential | naive | escalated
 
 
 # Signals that a step is mechanical and safe for the local tier.
@@ -40,7 +40,7 @@ _HARD = re.compile(
 
 
 def route(task: str, *, confidential: bool, routing_enabled: bool,
-          files_touched: int = 0, turn: int = 0) -> RoutingDecision:
+          turn: int = 0) -> RoutingDecision:
     if confidential:
         # Not a preference. The only models reachable on the confidential
         # virtual key are local ones.
@@ -53,12 +53,10 @@ def route(task: str, *, confidential: bool, routing_enabled: bool,
         text = task or ""
         hard = bool(_HARD.search(text))
         simple = bool(_SIMPLE.search(text))
-        if hard or files_touched >= 4 or len(text) > 600:
-            d = RoutingDecision(Tier.T2_CAPABLE,
-                                f"hard={hard} files={files_touched} len={len(text)}",
-                                "heuristic")
-        elif simple and files_touched <= 1:
-            d = RoutingDecision(Tier.T0_LOCAL, "mechanical, single file", "heuristic")
+        if hard or len(text) > 600:
+            d = RoutingDecision(Tier.T2_CAPABLE, f"hard={hard} len={len(text)}", "heuristic")
+        elif simple:
+            d = RoutingDecision(Tier.T0_LOCAL, "mechanical", "heuristic")
         else:
             d = RoutingDecision(Tier.T1_CHEAP, "default mid tier", "heuristic")
 

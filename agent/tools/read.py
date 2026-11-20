@@ -115,15 +115,28 @@ def _enclosing_units(text: str, s: int, e: int) -> tuple[int, int]:
     return ns, ne
 
 
+_MODS = r"(?:(?:public|private|protected|internal|static|final|abstract|sealed|partial|override|virtual|async|export|default)\s+)*"
 _DEF_RE = re.compile(
-    r"^\s*(?:(?:async\s+)?def\s+\w+|class\s+\w+|"
+    r"^\s*(?:(?:async\s+)?def\s+\w+|"
     r"(?:export\s+)?(?:async\s+)?function\s+\w+|"
     r"(?:export\s+)?(?:const|let|var)\s+\w+\s*=\s*(?:async\s*)?\(|"
-    r"func\s+\w+|type\s+\w+|interface\s+\w+)")
+    r"func\s+\w+|fun\s+\w+|type\s+\w+|"
+    # Rust
+    r"(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:unsafe\s+)?(?:fn|trait|mod)\s+\w+|impl\b|"
+    # classes and the like, with Java/C#/TypeScript modifiers
+    + _MODS + r"(?:pub(?:\([^)]*\))?\s+)?(?:class|interface|enum|record|struct)\s+\w+|"
+    # Java/C# methods and constructors: modifiers, a return type if any,
+    # a name and "("
+    r"(?:(?:public|private|protected|internal)\s+)" + _MODS + r"(?:[\w<>\[\],.?]+\s+)*\w+\s*\()")
+# C and C++ definitions start in column 0: a type, a name and "(", no ";".
+_C_DEF_RE = re.compile(
+    r"^(?!(?:if|for|while|switch|return|else|do|case|goto)\b)"
+    r"[A-Za-z_][\w \t*&:<>,]*[\s*&]\**~?[A-Za-z_][\w:~]*\s*\([^;]*$")
 
 
 def _outline(lines: list[str]) -> str:
-    hits = [f"{i+1:>5}  {l.rstrip()}" for i, l in enumerate(lines) if _DEF_RE.match(l)]
+    hits = [f"{i+1:>5}  {l.rstrip()}" for i, l in enumerate(lines)
+            if _DEF_RE.match(l) or _C_DEF_RE.match(l)]
     return "\n".join(hits[:120]) or "  (no top-level definitions detected)"
 
 

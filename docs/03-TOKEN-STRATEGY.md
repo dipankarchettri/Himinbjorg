@@ -74,10 +74,12 @@ as the sum of prompt tokens that would have been billed on a miss.
 | T1 cheap | `openai/gpt-4o-mini` or `anthropic/claude-haiku-5-5` | Single-file edits, tool selection on a narrow surface |
 | T2 capable | `anthropic/claude-sonnet-5-5` | Multi-file reasoning, ambiguous specs, failed-retry escalation |
 
-**The router must not cost more than it saves.** It runs heuristics first:
-file count, diff size, whether tests are involved, whether the request contains
-ambiguity markers. Only when heuristics are inconclusive does it make a T0
-classification call, and that call is itself a cached Shape B call.
+**The router must not cost more than it saves.** It is heuristics on the
+task's text alone, with no model call: words that mark a hard task (refactor,
+architecture, concurrency, debugging and the like) or a long request go to
+the capable tier, words that mark a mechanical one (rename, typo, format,
+list, summarise) to the local tier, everything else to the cheap tier. A model classification step was
+designed but never built; escalation covers a guess that was too low.
 
 **Escalation.** A T0 or T1 attempt that fails its correctness guard escalates
 one tier and retries once. Escalation is logged as a router miss. Two

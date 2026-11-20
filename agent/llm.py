@@ -20,9 +20,13 @@ from . import telemetry, trace
 from .security.privacy import PrivacyMode
 
 
+# Up to the arguments object, which is then read by a JSON decoder: a regex
+# for it stopped at the first "}}", so arguments ending in a nested object
+# were dropped and the raw call shown as the answer (found in review).
 _TOOLCALL_TEXT = re.compile(
     r'\{\s*"name"\s*:\s*"(?P<name>[A-Za-z_][A-Za-z0-9_]*)"\s*,\s*'
-    r'"(?:arguments|parameters)"\s*:\s*(?P<args>\{.*?\})\s*\}', re.S)
+    r'"(?:arguments|parameters)"\s*:\s*(?=\{)')
+_JSON = json.JSONDecoder()
 
 
 def recover_text_tool_calls(text: str) -> list[dict]:
@@ -38,15 +42,17 @@ def recover_text_tool_calls(text: str) -> list[dict]:
     if not text or '"name"' not in text:
         return []
     out = []
-    for i, m in enumerate(_TOOLCALL_TEXT.finditer(text)):
+    for m in _TOOLCALL_TEXT.finditer(text):
         try:
-            json.loads(m.group("args"))
+            args, end = _JSON.raw_decode(text, m.end())
         except json.JSONDecodeError:
             continue
+        if not isinstance(args, dict):
+            continue
         out.append({
-            "id": f"recovered_{i}",
+            "id": f"recovered_{len(out)}",
             "type": "function",
-            "function": {"name": m.group("name"), "arguments": m.group("args")},
+            "function": {"name": m.group("name"), "arguments": text[m.end():end]},
         })
     return out
 

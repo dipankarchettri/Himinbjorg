@@ -69,7 +69,9 @@ _INJECTION_MARKERS = (
     "pre-approved", "preapproved", "do not prompt", "don't prompt",
     "no need to ask", "skip approval", "without asking", "auto-approve",
     "autonomous agents", "ignore privacy", "ignore the privacy",
-    "system note", "system:", "disregard previous", "ignore previous",
+    # Not "system:" alone: it is in ordinary prose and code, and a warning
+    # that is always on teaches the reader to skip it.
+    "system note", "system override", "disregard previous", "ignore previous",
 )
 
 
@@ -239,14 +241,19 @@ def _check_argv(argv: list[str], repo_root: Path) -> None:
             continue
         if value in SAFE_OUTSIDE_PATHS:
             continue
-        if value.startswith("~") or value.startswith("/") or ".." in Path(value).parts:
-            target = Path(os.path.expanduser(value))
+        # Every argument is resolved, not only those that look like an
+        # escape: `cat sub/passwd` with sub -> /etc is outside too. An
+        # argument that is not a path resolves inside the repository.
+        target = Path(os.path.expanduser(value))
+        try:
             target = (target if target.is_absolute() else root / target).resolve()
-            if target != root and root not in target.parents:
-                raise InvalidArgs(
-                    f"argument {arg!r} points outside the repository; "
-                    f"use paths relative to the repository root")
-            value = os.path.relpath(target, root)
+        except (OSError, ValueError):       # not a path at all (NUL, too long)
+            continue
+        if target != root and root not in target.parents:
+            raise InvalidArgs(
+                f"argument {arg!r} points outside the repository; "
+                f"use paths relative to the repository root")
+        value = os.path.relpath(target, root)
         if is_secret_path(os.path.normpath(value)):
             raise InvalidArgs(f"argument {arg!r} names a credentials file")
 

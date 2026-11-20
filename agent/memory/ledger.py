@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from .. import trace
+
 Role = Literal["system", "user", "assistant", "tool"]
 
 
@@ -47,7 +49,7 @@ class Ledger:
     # every turn. A boundary that moves every turn rewrites one old message
     # per turn, which breaks the provider's prompt-prefix cache (cloud
     # cost) and Ollama's prefix KV reuse (local latency) at that point.
-    prune_step: int = 1
+    prune_step: int = 4         # as Settings.prune_step, measured (VERIFIED.md)
     # Hard ceiling on the rendered context, in estimated tokens. Above it
     # the oldest unpinned tool results are elided first, then old assistant
     # text. A local model silently drops the START of an over-long prompt
@@ -59,7 +61,8 @@ class Ledger:
     # replaces old turns with a summary near the budget (Agent._compact).
     mode: str = "turns"
     entries: list[LedgerEntry] = field(default_factory=list)
-    elided_tokens: int = 0
+    elided_tokens: int = 0      # left out of the latest request
+    compacted_tokens: int = 0   # replaced by summaries, over the session
 
     def append(self, entry: LedgerEntry) -> None:
         self.entries.append(entry)
@@ -77,7 +80,12 @@ class Ledger:
         return (h // step) * step
 
     def render(self, current_turn: int, fit: bool = True) -> list[dict[str, Any]]:
+        """The messages of the next request. With fit, it is the request
+        itself, and elided_tokens records what it leaves out; the count is
+        not added up across renders, which happen once per request and
+        again for estimates."""
         out: list[dict[str, Any]] = []
+        elided = 0
         horizon = self.horizon(current_turn)
         for e in self.entries:
             if not self.pruning_enabled or self.mode == "budget":
@@ -92,18 +100,22 @@ class Ledger:
                 # answers is left dangling and the provider rejects the
                 # message list.
                 replacement = f"[superseded: {e.summary or 'newer version provided later'}]"
-                self.elided_tokens += max(0, e.tokens - estimate_tokens(replacement))
+                elided += max(0, e.tokens - estimate_tokens(replacement))
                 out.append(self._as_message(e, replacement))
                 continue
 
             if not e.pinned and e.kind == "tool_result" and e.turn < horizon:
                 replacement = f"[elided, turn {e.turn}: {e.summary or self._one_line(content)}]"
-                self.elided_tokens += max(0, e.tokens - estimate_tokens(replacement))
+                elided += max(0, e.tokens - estimate_tokens(replacement))
                 out.append(self._as_message(e, replacement))
                 continue
 
             out.append(self._as_message(e, content))
-        return self._fit_budget(out) if fit else out
+        if not fit:
+            return out
+        out, cut = self._fit_budget(out)
+        self.elided_tokens = elided + cut
+        return out
 
     def estimate(self, current_turn: int) -> int:
         """Estimated tokens of the next request, before any fitting."""
@@ -123,28 +135,56 @@ class Ledger:
                            "Summary of the earlier work in this session (the older turns "
                            "were replaced by it):\n\n" + summary,
                            pinned=True, kind="summary")
-        self.elided_tokens += max(0, sum(e.tokens for e in old) - note.tokens)
+        self.compacted_tokens += max(0, sum(e.tokens for e in old) - note.tokens)
         self.entries = keep_pinned + [note] + recent
         return len(old)
 
-    def _fit_budget(self, out: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        total = sum(estimate_tokens(m.get("content") or "") for m in out)
+    def _fit_budget(self, out: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+        """Elide the oldest unpinned tool results, then old assistant text,
+        until the request fits. What follows the last assistant message is
+        what the model has not seen yet, and is never elided: it once was,
+        so a review that read five files in one turn saw only the last one
+        ("every read_file on these was elided"). If that alone is over the
+        budget, its tool results are shortened to share the room left."""
+        sizes = [estimate_tokens(m.get("content") or "") for m in out]
+        total = sum(sizes)
         if total <= self.context_budget:
-            return out
-        pinned = {id(m) for m, e in zip(out, self.entries) if e.pinned}
+            return out, 0
+        # The latest assistant message and everything after it stay.
+        last = max((i for i, m in enumerate(out) if m["role"] == "assistant"), default=-1)
+        unseen = last if last >= 0 else max(0, len(out) - 2)
+        pinned = {i for i, e in enumerate(self.entries[:len(out)]) if e.pinned}
+        stub = "[elided to fit the context window]"
+        cut = 0
         for role in ("tool", "assistant"):
-            for m in out[:-2]:                 # never the latest exchange
+            for i in range(unseen):
                 if total <= self.context_budget:
-                    return out
-                if id(m) in pinned or m["role"] != role:
+                    return out, cut
+                m = out[i]
+                if i in pinned or m["role"] != role or len(m.get("content") or "") <= len(stub):
                     continue
-                body = m.get("content") or ""
-                stub = "[elided to fit the context window]"
-                if len(body) > len(stub):
-                    total -= estimate_tokens(body) - estimate_tokens(stub)
-                    self.elided_tokens += estimate_tokens(body) - estimate_tokens(stub)
-                    m["content"] = stub
-        return out
+                saved = sizes[i] - estimate_tokens(stub)
+                out[i] = {**m, "content": stub}
+                sizes[i] -= saved
+                total -= saved
+                cut += saved
+        fresh = [i for i in range(unseen, len(out)) if out[i]["role"] == "tool"]
+        if total > self.context_budget and fresh:
+            room = self.context_budget - (total - sum(sizes[i] for i in fresh))
+            share = max(200, room // len(fresh)) * 4       # characters each
+            for i in fresh:
+                body = out[i].get("content") or ""
+                if len(body) > share:
+                    note = (f"\n[cut to fit the context window: {share:,} of {len(body):,} "
+                            "characters shown; read a narrower range with start and end]")
+                    out[i] = {**out[i], "content": body[:share] + note}
+                    saved = sizes[i] - estimate_tokens(out[i]["content"])
+                    sizes[i] -= saved
+                    total -= saved
+                    cut += saved
+        if total > self.context_budget:
+            trace.emit("context_over_budget", {"estimate": total, "budget": self.context_budget})
+        return out, cut
 
     @staticmethod
     def _one_line(text: str, limit: int = 110) -> str:
@@ -187,5 +227,6 @@ class Ledger:
         return {
             "entries": len(self.entries),
             "elided_tokens_estimate": self.elided_tokens,
+            "compacted_tokens_estimate": self.compacted_tokens,
             "raw_tokens_estimate": sum(e.tokens for e in self.entries),
         }
