@@ -234,9 +234,22 @@ def repl(agent, settings, live: LiveText | None = None) -> int:
     if not styled:
         print("  Interactive session. Each task continues the same conversation.")
         print(REPL_HELP + "\n")
+    history = None
+    if styled:
+        try:
+            from prompt_toolkit.history import InMemoryHistory
+            history = InMemoryHistory()       # this session only: tasks can name secrets
+        except ImportError:
+            pass
     while True:
         try:
-            line = input(terminal.prompt() if styled else "agent> ").strip()
+            if history is not None:
+                print()
+                line = terminal.input_box(history).strip()
+                if line:
+                    print(terminal.echo_task(line))
+            else:
+                line = input(terminal.prompt() if styled else "agent> ").strip()
         except EOFError:
             print()
             break

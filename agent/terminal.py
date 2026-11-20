@@ -169,3 +169,85 @@ def summary(s: dict, cost: float | None, label: str = "") -> str:
 def prompt() -> str:
     """The input prompt; the escapes are wrapped so readline counts its width."""
     return "\n\001\x1b[38;5;179m\x1b[1m\002›\001\x1b[0m\002 "
+
+
+# ----------------------------------------------------------- input box
+
+INPUT_HINT = "  enter send · alt+enter or \\ newline · ↑ history · ctrl-c clear · ctrl-d exit"
+
+
+def input_box(history=None, input=None, output=None) -> str:
+    """Read one task in a bordered box, as Claude Code does.
+
+    Needs prompt_toolkit; raises ImportError without it, and the caller
+    falls back to input(). Ctrl-C on an empty box raises KeyboardInterrupt
+    and Ctrl-D raises EOFError, the same as input(), so the REPL treats both
+    the same way. The box is erased on submit and the caller echoes the task.
+    """
+    from prompt_toolkit.application import Application
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
+    from prompt_toolkit.layout.controls import FormattedTextControl
+    from prompt_toolkit.layout.dimension import Dimension
+    from prompt_toolkit.styles import Style
+    from prompt_toolkit.widgets import TextArea
+
+    area = TextArea(multiline=True, wrap_lines=True, history=history,
+                    height=Dimension(min=1, max=12), dont_extend_height=True)
+    keys = KeyBindings()
+
+    @keys.add("enter", eager=True)
+    def _send(event):
+        buf = area.buffer
+        if buf.document.text_before_cursor.endswith("\\"):
+            buf.delete_before_cursor(1)
+            buf.insert_text("\n")
+            return
+        buf.append_to_history()
+        event.app.exit(result=buf.text)
+
+    @keys.add("escape", "enter", eager=True)
+    def _newline(event):
+        area.buffer.insert_text("\n")
+
+    @keys.add("c-c", eager=True)
+    def _clear(event):
+        if area.text:
+            area.buffer.reset()
+        else:
+            event.app.exit(exception=KeyboardInterrupt())
+
+    @keys.add("c-d", eager=True)
+    def _eof(event):
+        if not area.text:
+            event.app.exit(exception=EOFError())
+        else:
+            area.buffer.delete()
+
+    area.control.key_bindings = keys
+
+    def edge(left: str, right: str):
+        return VSplit([Window(width=1, height=1, char=left, style="class:box"),
+                       Window(height=1, char="─", style="class:box"),
+                       Window(width=1, height=1, char=right, style="class:box")])
+
+    body = VSplit([Window(width=1, char="│", style="class:box"),
+                   Window(FormattedTextControl([("class:prompt", " › ")]), width=3,
+                          dont_extend_width=True),
+                   area,
+                   Window(width=1, char="│", style="class:box")])
+    box_ = HSplit([edge("╭", "╮"), body, edge("╰", "╯")])
+    root = HSplit([VSplit([Window(width=2), box_, Window(width=1)]),
+                   Window(FormattedTextControl([("class:hint", INPUT_HINT)]), height=1)])
+    style = Style.from_dict({"box": "fg:#e0a43a", "prompt": "fg:#e0a43a bold",
+                             "hint": "fg:#808080"})
+    app = Application(layout=Layout(root, focused_element=area), style=style,
+                      full_screen=False, erase_when_done=True, mouse_support=False,
+                      input=input, output=output)
+    return app.run()
+
+
+def echo_task(text: str) -> str:
+    """The submitted task as it stays in the scrollback."""
+    lines = text.split("\n")
+    return "\n".join([fg(AMBER, bold("› ")) + lines[0]] + ["  " + l for l in lines[1:]])

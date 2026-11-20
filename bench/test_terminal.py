@@ -63,3 +63,34 @@ def test_a_long_repository_path_still_fits_the_box(monkeypatch):
     rows = [l for l in w.splitlines() if l.strip() and l.strip()[0] in "│╭╰"]
     assert len({len(l) for l in rows}) == 1 and max(len(l) for l in rows) <= 80
     assert "/repo" in w
+
+
+def _box(keys: str):
+    import pytest
+    pytest.importorskip("prompt_toolkit")
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+    with create_pipe_input() as inp:
+        inp.send_text(keys)
+        return terminal.input_box(input=inp, output=DummyOutput())
+
+
+def test_the_input_box_sends_on_enter():
+    assert _box("fix divide()\r") == "fix divide()"
+
+
+def test_the_input_box_takes_a_new_line_two_ways():
+    assert _box("one\\\rtwo\x1b\rthree\r") == "one\ntwo\nthree"
+
+
+def test_the_input_box_ctrl_c_clears_then_interrupts():
+    import pytest
+    assert _box("draft\x03kept\r") == "kept"
+    with pytest.raises(KeyboardInterrupt):
+        _box("\x03")
+
+
+def test_the_input_box_ctrl_d_on_empty_exits():
+    import pytest
+    with pytest.raises(EOFError):
+        _box("\x04")
