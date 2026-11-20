@@ -4,7 +4,8 @@ Settings are layered: the install directory's `.env`, then
 `~/.config/himinbjorg/env`, then the process environment, each overriding
 the one before. They are never read from the repository the agent works
 on, which is treated as untrusted input. [`.env.example`](../.env.example)
-documents every key.
+documents every key. After changing them, `himin doctor` checks the
+result: gateway, keys, each model tier and the sandbox.
 
 ## Gateway and keys
 

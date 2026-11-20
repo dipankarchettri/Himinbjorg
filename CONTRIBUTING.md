@@ -10,6 +10,7 @@ git clone https://github.com/dipankarchettri/Himinbjorg.git himinbjorg && cd him
 cp .env.example .env     # provider keys optional
 make venv                # .venv with the agent installed in editable mode
 make up                  # Bifrost on :8099 + Redis Stack (Docker)
+make doctor              # checks the setup and says what to fix
 ```
 
 Unit tests need neither the gateway nor a model; everything else does.

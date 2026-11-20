@@ -2,7 +2,7 @@ VENV    := .venv
 PY      := $(VENV)/bin/python
 COMPOSE := docker compose --env-file .env -f infra/docker-compose.yml
 
-.PHONY: venv up down logs status agent test proof bench pool gate-check extension extension-test \
+.PHONY: venv up down logs status agent doctor test proof bench pool gate-check extension extension-test \
         scenario-failover scenario-budget scenario-ladder scenario-privacy scenario-approval clean
 
 venv:
@@ -28,8 +28,12 @@ status:
 agent:
 	$(PY) -m agent.main "$(TASK)" --repo $(or $(REPO),.)
 
+# Check the gateway, keys, models and sandbox; says how to fix what is wrong.
+doctor:
+	$(PY) -m agent.main doctor
+
 test:
-	$(PY) -m pytest bench/test_security.py bench/test_write.py bench/test_tasks.py bench/test_loop.py bench/test_server.py bench/test_config.py bench/test_sandbox.py -q
+	$(PY) -m pytest bench/test_security.py bench/test_write.py bench/test_tasks.py bench/test_loop.py bench/test_server.py bench/test_config.py bench/test_sandbox.py bench/test_doctor.py -q
 
 # Check the approval prompt itself, with no model involved.
 gate-check:

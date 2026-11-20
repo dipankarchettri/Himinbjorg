@@ -157,7 +157,8 @@ def is_confidential(repo_root: Path, flag: bool) -> bool:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="himin", description="Himinbjorg: token-efficient coding agent on Bifrost")
-    p.add_argument("task", nargs="?", help="Task description. Omit for an interactive REPL.")
+    p.add_argument("task", nargs="?", help="Task description. Omit for an interactive REPL. "
+                                           "`himin doctor` checks the setup instead.")
     p.add_argument("--repo", default=".", help="Repository root the agent may touch")
     p.add_argument("--confidential", action="store_true",
                    help="Force local-only processing. Also triggered by a .agent-confidential file.")

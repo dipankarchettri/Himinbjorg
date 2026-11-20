@@ -62,6 +62,7 @@ ollama pull qwen2.5:32b-instruct     # local coding model, about 20 GB (skip wit
 cp .env.example .env                 # add provider keys here, all optional
 make venv                            # .venv with the agent installed
 make up                              # Bifrost gateway on :8099 + Redis Stack
+make doctor                          # checks gateway, keys, models, sandbox; says what to fix
 make agent TASK="what does divide() do wrong?" REPO=bench/seed
 ```
 
@@ -100,7 +101,11 @@ each task ends with its tokens and gateway-priced cost.
 At each approval you see the exact diff, computed by a dry run against
 the file on disk. Answer `y`, `n`, or `a` to approve every file edit for
 the rest of the session; commands and git still ask each time.
-`himin --help` lists every flag.
+`himin --help` lists every flag. If something does not work, run
+`himin doctor`: it checks the gateway, both virtual keys, cost reporting,
+each model (one short request with a tool, since a model that cannot
+call tools cannot drive the agent) and the sandbox, and says how to fix
+each problem. `--no-models` skips the model requests.
 
 ### VS Code
 
