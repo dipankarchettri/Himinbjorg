@@ -42,19 +42,33 @@ def recover_text_tool_calls(text: str) -> list[dict]:
     if not text or '"name"' not in text:
         return []
     out = []
+    rest = []                       # the text outside the calls
+    pos = 0
     for m in _TOOLCALL_TEXT.finditer(text):
+        if m.start() < pos:
+            continue
         try:
             args, end = _JSON.raw_decode(text, m.end())
         except json.JSONDecodeError:
             continue
         if not isinstance(args, dict):
             continue
+        close = re.match(r"\s*\}", text[end:])
+        if not close:
+            continue
+        rest.append(text[pos:m.start()])
+        pos = end + close.end()
         out.append({
             "id": f"recovered_{len(out)}",
             "type": "function",
             "function": {"name": m.group("name"), "arguments": text[m.end():end]},
         })
-    return out
+    rest.append(text[pos:])
+    # Only a reply that is the calls alone (in fences or tags at most), as
+    # a local model writes them. From prose it would run an example the
+    # answer merely showed, after the person had read it (found in review).
+    leftover = re.sub(r"```(?:json)?|</?tool_call>|[\s,\[\]]", "", "".join(rest))
+    return out if not leftover else []
 
 
 class GatewayError(RuntimeError):

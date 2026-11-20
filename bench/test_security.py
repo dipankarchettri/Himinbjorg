@@ -489,8 +489,8 @@ def test_outlines_cover_rust_java_and_c():
 def test_a_text_tool_call_with_a_nested_object_is_recovered():
     from agent.llm import recover_text_tool_calls
     calls = recover_text_tool_calls(
-        'Calling: {"name": "write_file", "arguments": {"path": "a.json", "content": {"x": {"y": 1}}}} '
-        'then {"name": "read_file", "arguments": {"path": "b"}}')
+        '{"name": "write_file", "arguments": {"path": "a.json", "content": {"x": {"y": 1}}}}\n'
+        '{"name": "read_file", "arguments": {"path": "b"}}')
     assert [c["function"]["name"] for c in calls] == ["write_file", "read_file"]
     assert calls[0]["function"]["arguments"] == '{"path": "a.json", "content": {"x": {"y": 1}}}'
 
@@ -531,3 +531,12 @@ def test_a_trace_file_is_readable_by_its_owner_only(tmp_path):
         assert (tmp_path / "t.jsonl").stat().st_mode & 0o777 == 0o600
     finally:
         trace._trace_path = old
+
+
+def test_a_tool_call_shown_as_an_example_in_an_answer_is_not_run():
+    from agent.llm import recover_text_tool_calls
+    assert recover_text_tool_calls(
+        'The agent reads files with a call like {"name": "read_file", "arguments": '
+        '{"path": "x.py"}}, then waits.') == []
+    assert len(recover_text_tool_calls(
+        '```json\n{"name": "read_file", "arguments": {"path": "x.py"}}\n```')) == 1
