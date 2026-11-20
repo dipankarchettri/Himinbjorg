@@ -80,6 +80,12 @@ class AuthFailed(GatewayError):
     """HTTP 401."""
 
 
+class GatewayUnreachable(GatewayError):
+    """No HTTP answer from the gateway itself: down, restarted, or timed
+    out. Distinct from AllProvidersFailed, where the gateway answered and
+    every provider behind it failed."""
+
+
 class AllProvidersFailed(GatewayError):
     """Primary and every fallback failed. Carries the primary's error."""
 
@@ -249,7 +255,7 @@ class LLMClient:
             if spec.on_text:
                 streamed = assemble_stream(raw.parse(), spec.on_text)
         except Exception as exc:                    # noqa: BLE001
-            self._raise_mapped(exc, spec)
+            self._raise_mapped(exc, spec, self.settings.bifrost_base_url)
             raise
         elapsed = time.time() - started
 
@@ -344,12 +350,18 @@ class LLMClient:
         return "budget" in kind or "budget" in etype
 
     @staticmethod
-    def _raise_mapped(exc: Exception, spec: CallSpec) -> None:
+    def _raise_mapped(exc: Exception, spec: CallSpec, base_url: str = "") -> None:
         """Branch on status code only.
 
         The exact error.type string for budget failures is not a stable
         interface; the status code is.
         """
+        from openai import APIConnectionError, APITimeoutError
+        if isinstance(exc, APITimeoutError):
+            raise GatewayUnreachable(f"the gateway at {base_url} did not answer in time") from exc
+        if isinstance(exc, APIConnectionError):
+            raise GatewayUnreachable(f"cannot reach the gateway at {base_url} "
+                                     f"({exc.__cause__ or exc})") from exc
         status = getattr(exc, "status_code", None)
         detail = str(exc)[:400]
         if status == 402:

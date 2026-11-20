@@ -38,6 +38,7 @@ import time
 import uuid
 
 from . import budget as budget_mod
+from . import session as session_mod
 from . import config as config_mod
 from . import telemetry
 from . import trace
@@ -76,6 +77,10 @@ class Server:
         self.privacy, self.registry, self.client = build(settings)
         self.agent = Agent(settings, self.privacy, self.client, self.registry,
                            printer=self._print, on_text=self._text)
+        # The "a session is saved" hint names a CLI flag; the editor shows
+        # only what resuming did.
+        session_mod.attach(self.agent, settings.resume,
+                           self._print if settings.resume else (lambda *a: None))
         self.tasks: queue.Queue = queue.Queue()
         self._pending: dict[str, dict] = {}
         self._pending_lock = threading.Lock()
@@ -171,8 +176,10 @@ class Server:
                     f"[The operator undid the last edit: {result}.]"))
             self.ch.send("info", text=result, command="undo")
         elif kind == "reset":
+            session_mod.forget(self.settings.repo_root, self.settings.confidential)
             self.agent = Agent(self.settings, self.privacy, self.client, self.registry,
                                printer=self._print, on_text=self._text)
+            session_mod.attach(self.agent, False, lambda *a: None)
             self.ch.send("info", text="New conversation.", command="reset")
         elif kind == "task":
             self._run_task(str(msg.get("text", "")).strip())

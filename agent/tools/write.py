@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import ast
 import difflib
+import hashlib
+import json
 import os
 import re
 import textwrap
@@ -23,29 +25,82 @@ from pathlib import Path
 
 
 # Undo journal: one batch per tool call, each entry (path, contents before
-# the write or None if the file did not exist). In memory only; a repo
-# under git has git for anything older than this session.
-JOURNAL: list[list[tuple[Path, str | None]]] = []
+# the write or None if the file did not exist, hash of the contents the
+# agent wrote). Saved to disk, when a path is set, before the file itself
+# is written, so a crash or restart never leaves an edit that cannot be
+# undone.
+JOURNAL: list[list[tuple[Path, str | None, str]]] = []
+JOURNAL_PATH: Path | None = None
+MAX_BATCHES = 20       # each holds whole files; older edits are in git
+
+
+def _digest(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def use_journal(path: Path | None) -> None:
+    """Keep the journal in this file, loading what a previous session left."""
+    global JOURNAL_PATH
+    JOURNAL_PATH = path
+    JOURNAL.clear()
+    if path is None or not path.exists():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for batch in data["batches"]:
+            JOURNAL.append([(Path(e["path"]), e["before"], e["after"]) for e in batch])
+    except (OSError, ValueError, KeyError, TypeError):
+        JOURNAL.clear()        # unreadable: start empty rather than undo wrongly
+
+
+def _save_journal() -> None:
+    if JOURNAL_PATH is None:
+        return
+    del JOURNAL[:-MAX_BATCHES]
+    data = {"version": 1, "batches": [
+        [{"path": str(p), "before": before, "after": after} for p, before, after in batch]
+        for batch in JOURNAL]}
+    JOURNAL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = JOURNAL_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data), encoding="utf-8")
+    os.chmod(tmp, 0o600)           # it holds file contents
+    os.replace(tmp, JOURNAL_PATH)
 
 
 def _journal_write(p: Path, new_text: str, batch: list | None = None) -> None:
     before = p.read_text(encoding="utf-8") if p.exists() else None
-    entry = (p, before)
+    entry = (p, before, _digest(new_text))
     if batch is None:
         JOURNAL.append([entry])
     else:
         batch.append(entry)
+        if not JOURNAL or JOURNAL[-1] is not batch:
+            JOURNAL.append(batch)
+    _save_journal()
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(new_text, encoding="utf-8")
 
 
 def undo_last() -> str:
-    """Revert the most recent edit batch. Returns a description."""
+    """Revert the most recent edit batch. Returns a description.
+
+    Refuses when a file has changed since the agent wrote it: reverting
+    would throw away an edit someone made after the agent's."""
     if not JOURNAL:
         return "nothing to undo"
-    batch = JOURNAL.pop()
+    batch = JOURNAL[-1]
+    changed = []
+    for p, _, after in batch:
+        now = p.read_text(encoding="utf-8") if p.exists() else None
+        if now is None or _digest(now) != after:
+            changed.append(p.name)
+    if changed:
+        return (f"not undone: {', '.join(dict.fromkeys(changed))} changed since the agent's edit. "
+                "Revert by hand, or with git.")
+    JOURNAL.pop()
+    _save_journal()
     names = []
-    for p, before in reversed(batch):
+    for p, before, _ in reversed(batch):
         if before is None:
             p.unlink(missing_ok=True)
         else:
@@ -550,7 +605,6 @@ def rename_symbol(old: str, new: str, repo_root: Path, path: str | None = None,
     batch: list = []
     for p, _, updated, _ in changes:
         _journal_write(p, updated, batch)
-    JOURNAL.append(batch)
     listing = ", ".join(f"{os.path.relpath(p, root)} ({n})" for p, _, _, n in changes)
     total = sum(n for *_, n in changes)
     # Show the result and what is left, so checking needs no extra turns.

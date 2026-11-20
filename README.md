@@ -98,17 +98,20 @@ cd ~/code/some-project
 himin                                                  # interactive session
 himin "fix the failing test in tests/test_orders.py"   # one task, then exit
 himin --confidential "explain the auth flow"           # local models only
+himin --resume                                         # continue the last session here
 ```
 
 In a session each task continues the same conversation, so "now add a
-test for it" has the context. The answer streams as it is written, and
+test for it" has the context. The conversation is saved after every turn,
+so after a crash or a closed terminal `himin --resume` continues it, and
+`/undo` still works after a restart. The answer streams as it is written, and
 each task ends with its tokens and gateway-priced cost.
 
 | Command | Effect |
 | --- | --- |
 | `/cost` | Session token and cost totals |
-| `/undo` | Revert the agent's most recent edit (a whole rename counts as one) |
-| `/reset` | Start a fresh conversation |
+| `/undo` | Revert the agent's most recent edit (a whole rename counts as one); refused if you changed the file since |
+| `/reset` | Start a fresh conversation, dropping the saved one |
 | `/exit`, Ctrl-D | Quit; Ctrl-C interrupts a task and keeps the session |
 
 At each approval you see the exact diff, computed by a dry run against

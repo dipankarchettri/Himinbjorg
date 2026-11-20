@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  {quota.describe()}\n")
 
     live = LiveText() if sys.stdout.isatty() else None
-    agent = new_agent(settings, privacy, client, registry, live)
+    agent = attach_session(new_agent(settings, privacy, client, registry, live), settings.resume)
 
     task = settings_task(argv)
     if task:
@@ -112,6 +112,12 @@ def new_agent(settings, privacy, client, registry, live: LiveText | None):
     if live is None:
         return Agent(settings, privacy, client, registry)
     return Agent(settings, privacy, client, registry, printer=live.line, on_text=live.text)
+
+
+def attach_session(agent, resume: bool, out=print):
+    from . import session as session_mod
+    session_mod.attach(agent, resume, out)
+    return agent
 
 
 def _delta(after: dict, before: dict) -> dict:
@@ -166,10 +172,11 @@ def run_one(agent, settings, task: str) -> int:
 REPL_HELP = """  Commands:
     /cost    totals for the whole session
     /undo    revert the agent's most recent file edit
-    /reset   start a fresh conversation (same repository)
+    /reset   start a fresh conversation (same repository); the saved one is dropped
     /help    this text
     /exit    quit (or Ctrl-D)
-  Ctrl-C interrupts the running task and returns to the prompt."""
+  Ctrl-C interrupts the running task and returns to the prompt.
+  The conversation is saved after every turn: `himin --resume` continues it."""
 
 
 def repl(agent, settings, live: LiveText | None = None) -> int:
@@ -209,7 +216,10 @@ def repl(agent, settings, live: LiveText | None = None) -> int:
                     agent._last_turn, "user", f"[The operator undid the last edit: {result}.]"))
             continue
         if line == "/reset":
-            agent = new_agent(agent.settings, agent.privacy, agent.client, agent.registry, live)
+            from . import session as session_mod
+            session_mod.forget(agent.settings.repo_root, agent.settings.confidential)
+            agent = attach_session(new_agent(agent.settings, agent.privacy, agent.client,
+                                             agent.registry, live), False, lambda *a: None)
             print("  New conversation.")
             continue
         before = agent.stats.as_dict()

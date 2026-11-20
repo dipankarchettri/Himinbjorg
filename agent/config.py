@@ -154,6 +154,7 @@ class Settings:
     # (opencode's approach). Cheaper only with provider prompt caching;
     # on a local model it costs more tokens (docs/VERIFIED.md).
     prune_mode: str = "turns"
+    resume: bool = False        # continue the saved session (agent/session.py)
 
     @property
     def virtual_key(self) -> str:
@@ -181,6 +182,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--repo", default=".", help="Repository root the agent may touch")
     p.add_argument("--confidential", action="store_true",
                    help="Force local-only processing. Also triggered by a .agent-confidential file.")
+    p.add_argument("--resume", action="store_true",
+                   help="Continue the last session saved for this repository")
     p.add_argument("--max-turns", type=int, default=25)
     p.add_argument("--no-cache", action="store_true")
     p.add_argument("--no-routing", action="store_true")
@@ -251,6 +254,7 @@ def load(argv: list[str] | None = None) -> Settings:
         sandbox_network=env.get("AGENT_SANDBOX_NETWORK", "0").strip().lower() in ("1", "true", "yes"),
         context_budget=int(env.get("AGENT_CONTEXT_TOKENS", "28000")),
         prune_mode=_prune_mode(env.get("AGENT_PRUNE_MODE", "turns")),
+        resume=args.resume,
         repo_root=repo_root,
         confidential=is_confidential(repo_root, args.confidential),
         max_turns=args.max_turns,

@@ -51,6 +51,17 @@ returns tool calls as plain text and cannot drive the agent.
 | `AGENT_SANDBOX` | `auto` (default): approved commands run in a Landlock sandbox on Linux, writing only inside the repository and temp, with no TCP. `required` refuses commands where Landlock is missing; `off` disables it |
 | `AGENT_SANDBOX_NETWORK` | `1` lets sandboxed commands open TCP connections, for example for `pip install` |
 
+## Files the agent keeps
+
+| Path | Contents |
+| --- | --- |
+| `~/.local/state/himinbjorg/sessions/` | The conversation per repository and mode, saved after every turn; `himin --resume` continues it, `/reset` deletes it |
+| `~/.local/state/himinbjorg/undo/` | The last 20 edits per repository, saved before each file is written, so `/undo` works after a restart |
+| `~/.local/state/himinbjorg/traces/` | One JSON-lines trace per session (in `traces/` of the clone when run from source) |
+
+`XDG_STATE_HOME` moves all three. The files are mode 0600: they contain
+the repository's code.
+
 ## Gateway configuration
 
 Providers, virtual keys and budgets are in

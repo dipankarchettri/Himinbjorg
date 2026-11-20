@@ -20,7 +20,11 @@ The threat model and the enforcement points are in
 - **Confidential mode.** A repository marked confidential is served only
   by local models, with no fallback to the cloud, no web search and no
   cache; an egress check refuses any other model before the request
-  leaves.
+  leaves. Its saved session is a separate file, so it cannot be resumed
+  in standard mode.
+- **Saved sessions.** The conversation and the undo history are kept in
+  `~/.local/state/himinbjorg/` (mode 0600), since they contain the
+  repository's code. `/reset` deletes the session.
 
 ## Reporting a vulnerability
 

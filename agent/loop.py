@@ -217,6 +217,8 @@ class Agent:
         self._rename_allowed = True
         self._turn_base = 0
         self._last_turn = 0
+        # Saves the session (agent/session.py); none in the benchmark.
+        self.checkpoint = None
         self._sticky: dict = {}             # tier -> (served model, monotonic expiry)
         self._last_provider_was_fallback = False
         self._reads_this_task: dict[str, int] = {}
@@ -290,6 +292,15 @@ class Agent:
             raise
         finally:
             self._turn_base = self._last_turn
+            self._checkpoint()
+
+    def _checkpoint(self) -> None:
+        if self.checkpoint is None:
+            return
+        try:
+            self.checkpoint()
+        except OSError as exc:      # a full disk must not stop the task
+            trace.emit("error", {"kind": "checkpoint", "detail": str(exc)[:200]})
 
     def _run_task(self, task: str, base: int) -> str:
 
@@ -316,6 +327,7 @@ class Agent:
 
         self._last_turn = base
         for step in range(1, max_turns + 1):
+            self._checkpoint()          # the turns so far, before the next call
             turn = base + step
             self._last_turn = turn
             self.stats.turns += 1
@@ -357,6 +369,12 @@ class Agent:
                 # Not retryable: a routing or provisioning fault.
                 self.print(f"\n  Configuration error ({type(exc).__name__}): {exc}")
                 return "stopped: configuration error"
+            except llm_mod.GatewayUnreachable as exc:
+                trace.emit("error", {"kind": "GatewayUnreachable", "detail": str(exc)[:400]})
+                self.ledger.close_dangling_tool_calls(self._last_turn)
+                self.print(f"\n  Lost the gateway: {exc}. Start it with `make up`; "
+                           "the conversation is saved, so `himin --resume` continues it.")
+                return "stopped: the gateway is unreachable"
             except llm_mod.AllProvidersFailed as exc:
                 self.print(f"\n  All providers failed. {exc}")
                 return "stopped: all providers failed"

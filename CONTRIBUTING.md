@@ -69,6 +69,8 @@ agent/            the agent
   llm.py          gateway client, streaming, failover attribution, prompt caching
   config.py       settings and confidential-mode resolution
   telemetry.py    usage and gateway-priced cost
+  session.py      saved sessions (resume) and the on-disk undo journal
+  doctor.py       himin doctor: setup checks
   memory/         history ledger and file memory
   security/       approval gate, egress policy, redaction, sandbox
   tools/          read, write, shell and git tools, tool registry
