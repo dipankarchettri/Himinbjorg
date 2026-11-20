@@ -107,6 +107,77 @@ def welcome(version: str, repo: str, mode: str, sandbox: str, models: list[str],
     return "\n".join([""] + wordmark() + [""] + box(rows) + [hint, ""])
 
 
+# ---------------------------------------------------------- markdown
+
+class Markdown:
+    """The model's Markdown, styled for a terminal as it streams.
+
+    Fed one whitespace-free token at a time (and each newline), so a code
+    span or bold run that crosses words or stream chunks still works:
+    `code` is coloured, **bold** is bold, a heading is bold, a list
+    marker becomes a bullet, and a fenced block is coloured without its
+    fences. Anything else is left as written.
+    """
+
+    CODE = f"\x1b[38;5;{SKY}m"
+    FG_OFF, BOLD_ON, BOLD_OFF = "\x1b[39m", "\x1b[1m", "\x1b[22m"
+
+    def __init__(self) -> None:
+        self.code = self.strong = self.heading = self.fence = self.skip = False
+        self.bol = True                 # nothing but spaces yet on this line
+        self.eat_space = False          # the space after a dropped "#"
+
+    def token(self, tok: str) -> str:
+        if self.bol:
+            self.bol = False
+            if tok.startswith("```"):
+                self.fence = not self.fence
+                self.skip = True        # the fence line itself, with its language
+                return ""
+            if not self.fence:
+                if re.fullmatch(r"#{1,6}", tok):
+                    self.heading = self.eat_space = True
+                    return self.BOLD_ON
+                if tok in ("-", "*", "+"):
+                    return fg(GREY, "•")
+        if self.skip:
+            return ""
+        if self.fence:
+            return self.CODE + tok + self.FG_OFF
+        out, i = [], 0
+        while i < len(tok):
+            if tok[i] == "`":
+                self.code = not self.code
+                out.append(self.CODE if self.code else self.FG_OFF)
+                i += 1
+            elif tok.startswith("**", i) and not self.code and len(tok) > 2:
+                self.strong = not self.strong
+                out.append(self.BOLD_ON if self.strong or self.heading else self.BOLD_OFF)
+                i += 2
+            else:
+                out.append(tok[i])
+                i += 1
+        return "".join(out)
+
+    def space(self, text: str) -> str:
+        if self.eat_space:
+            self.eat_space = False
+            return ""
+        return text
+
+    def newline(self) -> str:
+        out = self.BOLD_OFF if self.heading and not self.strong else ""
+        self.heading = self.skip = False
+        self.bol = True
+        return out
+
+    def close(self) -> str:
+        """Reset whatever an unfinished answer left open."""
+        styled = self.code or self.strong or self.heading or self.fence
+        self.__init__()
+        return "\x1b[0m" if styled else ""
+
+
 # ---------------------------------------------------------- live lines
 
 _ACTIVITY = re.compile(r"^  \. (\S+) ?(.*?)  \[(ok|failed)\] ?(.*)$")

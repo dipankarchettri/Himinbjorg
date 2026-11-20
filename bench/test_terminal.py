@@ -134,3 +134,43 @@ def test_streamed_text_ends_with_its_last_word_before_an_approval():
     live.end_text()                             # what the approval prompt calls first
     out.write("APPROVAL")
     assert plain(out.getvalue()).endswith("before editing.\nAPPROVAL")
+
+
+_MD = """## Summary
+
+The cause is in `src/click/utils.py`: **`out = out or ""`** turns `b''` into a str.
+
+- `echo()` now checks the type first
+
+```python
+out += b"\\n"
+```
+
+Done."""
+
+
+def _streamed(text: str, styled: bool, step: int = 5) -> str:
+    import io
+    from agent import main as main_mod
+    out = io.StringIO()
+    live = main_mod.LiveText(out=out, styled=True) if styled else main_mod.LiveText(out=out)
+    for i in range(0, len(text), step):                 # chunks that split the markers
+        live.text(text[i:i + step])
+    live.end_text()
+    return out.getvalue()
+
+
+def test_a_streamed_answer_is_drawn_as_markdown_not_shown_raw():
+    raw = _streamed(_MD, styled=True)
+    text = plain(raw)
+    assert "`" not in text and "**" not in text and "#" not in text
+    assert text.splitlines()[1] == "● Summary"
+    assert "• echo() now checks the type first" in text
+    assert 'out += b"\\n"' in text and "python" not in text      # fences and language dropped
+    assert terminal.Markdown.CODE + "src/click/utils.py" in raw
+    assert raw.count("\x1b[1m") >= 3                              # the dot, the heading, the bold run
+    assert not raw.rstrip("\n").endswith(terminal.Markdown.CODE)
+
+
+def test_piped_output_keeps_the_markdown():
+    assert _streamed(_MD, styled=False).strip() == _MD

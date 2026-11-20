@@ -137,6 +137,7 @@ class LiveText:
         self.answering = False
         self.col = 0
         self.word = ""          # held back until it ends, so it can move to the next line whole
+        self.md = terminal.Markdown()
 
     def text(self, piece: str) -> None:
         if not self.styled:
@@ -158,29 +159,37 @@ class LiveText:
         if not part:
             return
         if part == "\n":
-            self.out.write(part)
+            fence_line = self.md.skip and self.col == 0
+            self.out.write(self.md.newline())
+            if not fence_line:              # a fence line is dropped whole
+                self.out.write(part)
             self.col = 0
             return
         cols = shutil.get_terminal_size((80, 24)).columns
         if part.isspace():
-            if self.col < cols:             # never start a line with a space
+            part = self.md.space(part)
+            if part and self.col < cols:    # never start a line with a space
                 self.out.write(part)
                 self.col += len(part)
             return
-        if self.col and self.col + len(part) > cols:
+        part = self.md.token(part)
+        w = terminal.width(part)
+        if self.col and self.col + w > cols:
             self.out.write("\n")
             self.col = 0
         self.out.write(part)
-        self.col += len(part)
+        self.col += w
         if self.col > cols:                 # a word longer than a line: the terminal wrapped it
             self.col %= cols
 
     def finish(self) -> None:
-        """Write the last word of an answer."""
+        """Write the last word of an answer, and reset its styles."""
         if self.word:
             self._put(self.word)
             self.word = ""
-            self.out.flush()
+        if self.styled:
+            self.out.write(self.md.close())
+        self.out.flush()
 
     def end_text(self) -> None:
         """Close the text so far, before anything else is printed."""
@@ -196,6 +205,13 @@ class LiveText:
         if self.styled:
             args = tuple(terminal.style_line(str(a)) for a in args)
         print(*args, file=self.out, **kwargs)
+
+
+def show_answer(answer: str) -> None:
+    """An answer that was not streamed, drawn the same way as one that was."""
+    live = LiveText(styled=True)
+    live.text(answer)
+    live.end_text()
 
 
 def welcome(settings, privacy, quota, resumed: str = "") -> str:
@@ -271,8 +287,10 @@ def run_one(agent, settings, task: str, live: LiveText | None = None) -> int:
         if live:
             live.finish()
 
-    if terminal.enabled():
-        print("" if agent.answer_streamed else "\n" + terminal.bold("●") + " " + answer)
+    if terminal.enabled() and agent.answer_streamed:
+        print()
+    elif terminal.enabled():
+        show_answer(answer)
     elif agent.answer_streamed:
         print("\n" + "=" * 62)          # the answer is above, as it arrived
     else:
@@ -368,8 +386,10 @@ def repl(agent, settings, live: LiveText | None = None) -> int:
         finally:
             if live:
                 live.finish()
-        if styled:
-            print("" if agent.answer_streamed else "\n" + terminal.bold("●") + " " + answer)
+        if styled and agent.answer_streamed:
+            print()
+        elif styled:
+            show_answer(answer)
         else:
             print("\n" if agent.answer_streamed else "\n" + answer + "\n")
         if not styled:
