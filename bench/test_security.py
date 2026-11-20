@@ -451,3 +451,10 @@ def test_inline_code_may_use_its_own_semicolons(command):
 def test_only_the_inline_code_argument_is_exempt(command):
     with pytest.raises(InvalidArgs):
         _shell(command)
+
+
+def test_a_missing_argument_is_named():
+    std = make_settings()
+    reg = Registry(PrivacyMode.build(False, std.vk_standard, std.vk_confidential), std)
+    out = reg.dispatch("grep", {"path": "."})
+    assert not out.ok and out.content == "ERROR: grep needs pattern; you sent path."

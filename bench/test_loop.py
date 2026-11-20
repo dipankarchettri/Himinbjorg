@@ -912,7 +912,7 @@ def test_a_retry_for_room_to_answer_keeps_the_turn_and_resets_per_task(repo):
                                       ([], "second answer")])
     agent.run("explain calc.py")
     assert agent.stats.turns == 2
-    agent.run("and divide?")
+    agent.run("what does divide do?")
     assert client.specs[-1].max_tokens == client.specs[0].max_tokens   # back to normal
 
 
@@ -998,3 +998,27 @@ def test_the_answer_call_sees_what_pruning_had_elided(repo):
     assert before[0].startswith("[elided")                       # pruned while reading
     assert "def divide" in final[0]                               # whole for the answer
     assert agent.ledger.mode == "turns"                           # and pruning is back after
+
+
+def test_an_answer_cut_by_the_output_limit_is_continued(repo):
+    agent, client = make_agent(repo, [([], "Two of its three jobs don't do what their names say,", "length"),
+                                      ([], "and the deploy job builds twice.", "stop")])
+    answer = agent.run("how is my ci pipeline")
+    assert answer == "Two of its three jobs don't do what their names say, and the deploy job builds twice."
+    assert client.specs[1].max_tokens == 2 * client.specs[0].max_tokens
+    assert "cut off" in client.specs[1].messages[-1]["content"]
+
+
+def test_continuing_a_cut_answer_stops_after_two_tries(repo):
+    agent, client = make_agent(repo, [([], "one", "length"), ([], "two", "length"),
+                                      ([], "three", "length")])
+    assert agent.run("how is my ci pipeline") == "one two three"
+    assert len(client.specs) == 3
+
+
+def test_a_question_gets_room_for_its_answer_and_an_edit_keeps_the_small_limit(repo):
+    agent, client = make_agent(repo, [([], "It divides.")])
+    agent.run("what does divide do?")
+    agent2, client2 = make_agent(repo, [([], "done")])
+    agent2.run("fix divide() in calc.py")
+    assert client.specs[0].max_tokens == 4096 and client2.specs[0].max_tokens == 1200

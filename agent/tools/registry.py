@@ -189,6 +189,16 @@ class Registry:
         try:
             out = spec.handler(**clean)
         except TypeError as exc:
+            # Name what is wrong; Python's "missing 1 required positional
+            # argument" did not say which (seen: grep with only a path).
+            params = spec.schema["function"]["parameters"]
+            missing = [k for k in params.get("required", []) if k not in clean]
+            unknown = [k for k in clean if k not in params.get("properties", {})]
+            if missing or unknown:
+                said = (f"{name} needs {', '.join(missing)}" if missing else
+                        f"{name} takes {', '.join(params.get('properties', {}))}")
+                got = ", ".join(clean) or "no arguments"
+                return ToolResult(False, f"ERROR: {said}; you sent {got}.")
             return ToolResult(False, f"ERROR: bad arguments for {name}: {exc}")
         except Exception as exc:                  # noqa: BLE001 - returned to the model
             return ToolResult(False, f"ERROR: {name} failed: {exc}")

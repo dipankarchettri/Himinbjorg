@@ -259,6 +259,8 @@ class Agent:
         self._nudges = 0
         self._nudged_no_edit = False
         self._nudged_empty = False
+        self._cut_off = ""          # an answer the output limit cut, being continued
+        self._continued = 0
         self._out_scale = 1         # doubles when a reply hit max_tokens before any answer
         self._skip_cache = False    # once, for a retry the cache would answer with the same reply
         self._denials = 0
@@ -415,6 +417,8 @@ class Agent:
         self._nudges = 0
         self._nudged_no_edit = False
         self._nudged_empty = False
+        self._cut_off = ""          # an answer the output limit cut, being continued
+        self._continued = 0
         self._out_scale = 1
         self._skip_cache = False
         self._denials = 0
@@ -515,13 +519,36 @@ class Agent:
                                       "from what you have found so far."))
                     continue
 
+            # An answer cut by the output limit is continued, not returned
+            # cut. Found in VS Code (DeepSeek V4.1 Flash): a CI review ended
+            # mid-sentence, "two of its three jobs don't do what their
+            # names say,", and was shown as the whole answer.
+            if (not result.tool_calls and result.text.strip() and result.finish_reason == "length"
+                    and self._continued < 2):
+                piece = result.text if result.text[-1:].isspace() else result.text + " "
+                if result.streamed and piece != result.text and self.on_text:
+                    self.on_text(" ")
+                self._cut_off += piece
+                self._continued += 1
+                self.ledger.append(LedgerEntry(turn, "assistant", result.text))
+                self.ledger.append(LedgerEntry(
+                    turn, "user", "Your answer was cut off by the output limit. Continue it "
+                                  "from the next word, without repeating anything."))
+                self._out_scale = min(self._out_scale * 2, 4)
+                self._skip_cache = same_turn = True
+                trace.emit("cut_off_reply", {"chars": len(result.text),
+                                             "retry_max_tokens_scale": self._out_scale})
+                continue
+            cut_off, self._cut_off, self._continued = self._cut_off, "", 0
+
             if not result.tool_calls:
-                answer = result.text.strip() or (
+                answer = (cut_off + result.text.lstrip()).strip() or (
                     "The model returned no answer"
                     + (", having used its whole output limit"
                        if result.finish_reason == "length" else "")
                     + ". Ask again, or try another model.")
-                self.ledger.append(LedgerEntry(turn, "assistant", answer))
+                self.ledger.append(LedgerEntry(turn, "assistant",
+                                               result.text.strip() if cut_off else answer))
                 nudge = None
                 # Not for a question: "in one sentence, what did you change?"
                 # names an edit verb but asks for a report, and the nudge made
@@ -794,7 +821,10 @@ task in this reply."""
             # Diff writes keep output small. Without them every edit is a
             # whole file, and a 297-line file needs ~3,000 output tokens: a
             # 1,200 cap would make the baseline unable to edit at all.
-            max_tokens=(1200 if self.settings.levers.diff_writes else 4096) * self._out_scale,
+            # A question's answer is prose, often long; 1,200 cut DeepSeek's
+            # CI review mid-sentence, its reasoning counting against it.
+            max_tokens=(1200 if self.settings.levers.diff_writes and mutating else 4096)
+                       * self._out_scale,
             temperature=self.settings.temperature,
             on_text=None if tools_off else self.on_text,
             # Tools stay declared: a history with tool calls and no tool
