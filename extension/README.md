@@ -20,11 +20,13 @@ runs as `himin --serve` in the open folder.
 
 ## Setup
 
-1. Set up the agent and the gateway (see the main README: `make venv`, `make up`).
+1. Install the agent and start the gateway (see the main README:
+   `pipx install .` and `make up`; `himin doctor` checks both).
 2. Install the extension: `code --install-extension himinbjorg.vsix`.
-3. Set **Himinbjorg: Command** to the full path of `himin`, for example
-   `/path/to/himinbjorg/.venv/bin/himin`.
-4. Open a repository folder and click the Himinbjorg icon.
+3. Open a repository folder and click the Himinbjorg icon. The extension
+   finds `himin` on `PATH` or in pipx's bin directory (`~/.local/bin`);
+   anywhere else, set **Himinbjorg: Command** to its full path (a User
+   setting). If the gateway is not running, it says so when it starts.
 
 ## Security model
 

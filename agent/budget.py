@@ -85,6 +85,18 @@ def poll(settings, virtual_key: str, ttl_seconds: int = 20) -> Quota:
     return quota
 
 
+def gateway_error(settings, timeout: float = 3.0) -> str:
+    """Why the gateway cannot be reached, or "" when its health check passes."""
+    url = settings.bifrost_base_url.rstrip("/") + "/health"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return "" if resp.status == 200 else f"health check returned {resp.status}"
+    except urllib.error.HTTPError as exc:
+        return f"health check returned {exc.code}"
+    except (urllib.error.URLError, OSError) as exc:
+        return f"not reachable ({getattr(exc, 'reason', exc)})"
+
+
 def provider_exhausted(quota: Quota, provider: str | None) -> tuple[float, float] | None:
     """(used, limit) when this provider's own budget is used up, else None."""
     used, limit = quota.providers.get(provider or "", (0.0, 0.0))

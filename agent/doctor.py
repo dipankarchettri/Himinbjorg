@@ -78,9 +78,9 @@ class Doctor:
     def add(self, check: Check) -> None:
         self.checks.append(check)
         label = {"fail": "FAIL"}.get(check.status, check.status)
-        self.out(f"  {label:5} {check.name:13} {check.detail}")
+        self.out(f"  {label:5} {check.name:17} {check.detail}")
         if check.fix:
-            self.out(f"  {'':5} {'':13} fix: {check.fix}")
+            self.out(f"  {'':5} {'':17} fix: {check.fix}")
 
     # ------------------------------------------------------------ checks
 
@@ -212,7 +212,7 @@ class Doctor:
     def run(self) -> int:
         s = self.settings
         self.out("\n  Himinbjorg doctor\n")
-        self.out(f"  {'':5} {'repository':13} {s.repo_root} ({self.privacy.describe()})")
+        self.out(f"  {'':5} {'repository':17} {s.repo_root} ({self.privacy.describe()})")
         self.python()
         self.settings_files()
         if self.gateway():

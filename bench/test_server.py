@@ -53,11 +53,14 @@ class Feed:
 def served(repo, monkeypatch):
     """A running server whose agent talks to a scripted client."""
     started = []
+    gateway = [""]          # what the start-up health check reports
 
-    def start(turns, client=None):
+    def start(turns, client=None, gateway_error=""):
+        gateway[0] = gateway_error
         base, _ = make_agent(repo, [], auto_approve=False)
         settings = base.settings
         monkeypatch.setattr(server_mod.Server, "__init__", lambda self, *a, **k: None)
+        monkeypatch.setattr(server_mod.budget_mod, "gateway_error", lambda s: gateway[0])
         srv = server_mod.Server()
         srv.settings, srv.ch, srv.stdin = settings, FakeChannel(), Feed()
         srv.privacy, srv.registry = base.privacy, base.registry
@@ -69,7 +72,7 @@ def served(repo, monkeypatch):
         t = threading.Thread(target=srv.serve, daemon=True)
         t.start()
         started.append((srv, t))
-        srv.ch.wait("ready")
+        srv.ready = srv.ch.wait("ready")
         return srv
 
     yield start
@@ -200,3 +203,14 @@ def test_commands_the_agent_runs_cannot_read_its_stdin():
                          capture_output=True, text=True, timeout=30)
     assert "approval" not in out.stdout
     assert "''" in out.stdout
+
+
+def test_ready_says_whether_the_gateway_is_up(served):
+    srv = served([])
+    assert srv.ready["gateway_error"] == ""
+
+
+def test_ready_carries_a_gateway_that_is_down(served):
+    srv = served([], gateway_error="not reachable (Connection refused)")
+    assert "Connection refused" in srv.ready["gateway_error"]
+

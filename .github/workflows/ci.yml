@@ -133,6 +133,9 @@ jobs:
       - name: Compile
         run: npm run compile
 
+      - name: Unit tests
+        run: node out/test/resolve.test.js
+
       # `npm test` is the protocol test against a live gateway and Ollama,
       # so it stays in `make extension-test`, not in CI.
       - name: Package the VSIX

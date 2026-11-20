@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from agent.config import load_dotenv     # noqa: E402
+from agent.config import default_trace_dir, load_dotenv     # noqa: E402
 
 
 def write(tmp_path, body: str) -> Path:
@@ -62,3 +62,16 @@ def test_the_shipped_example_has_no_comment_as_a_value():
     for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY",
                 "OPENROUTER_API_KEY", "GROQ_API_KEY", "TAVILY_API_KEY"):
         assert env[key] == "", f"{key} was read as {env[key]!r}"
+
+
+def test_traces_stay_in_a_source_checkout(tmp_path):
+    (tmp_path / "pyproject.toml").write_text("")
+    assert default_trace_dir(tmp_path) == tmp_path / "traces"
+
+
+def test_an_installed_package_traces_to_the_state_directory(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    site = tmp_path / "site-packages"
+    site.mkdir()
+    assert default_trace_dir(site) == tmp_path / "state" / "himinbjorg" / "traces"
+

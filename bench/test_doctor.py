@@ -141,3 +141,14 @@ def test_himin_doctor_is_dispatched(monkeypatch):
     monkeypatch.setattr(doctor_mod, "main", lambda argv: seen.setdefault("argv", argv) and 7)
     assert main_mod.main(["doctor", "--no-models"]) == 7
     assert seen["argv"] == ["--no-models"]
+
+
+def test_the_cli_stops_with_one_message_when_the_gateway_is_down(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(main_mod.budget_mod, "gateway_error",
+                        lambda s: "not reachable (Connection refused)")
+    monkeypatch.setenv("BIFROST_BASE_URL", "http://localhost:1")
+    assert main_mod.main(["explain this", "--repo", str(tmp_path),
+                          "--trace-dir", str(tmp_path / "t")]) == 1
+    out = capsys.readouterr().out
+    assert "make up" in out and "Traceback" not in out
+

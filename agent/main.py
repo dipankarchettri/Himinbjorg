@@ -65,6 +65,11 @@ def main(argv: list[str] | None = None) -> int:
     })
 
     print(banner(settings, privacy, registry))
+    down = budget_mod.gateway_error(settings)
+    if down:
+        print(f"  The gateway at {settings.bifrost_base_url} is {down}.\n"
+              "  Start it with `make up` in the clone; `himin doctor` checks the rest.\n")
+        return 1
     quota = budget_mod.poll(settings, privacy.virtual_key)
     print(f"  {quota.describe()}\n")
 

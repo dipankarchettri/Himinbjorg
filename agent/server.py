@@ -8,6 +8,8 @@
     {"type": "cost"} | {"type": "undo"} | {"type": "reset"} | {"type": "shutdown"}
 
 Events: ready, log, delta, approval_request, result, cost, info, error.
+`ready` carries `gateway_error`, empty when the gateway's health check
+passed.
 `delta` is model text as it streams in, JSON-encoded like every event; the
 `result` that follows carries the whole answer.
 
@@ -212,7 +214,11 @@ class Server:
 
     def serve(self) -> int:
         quota = budget_mod.poll(self.settings, self.privacy.virtual_key)
+        # Said once at start, so a stopped gateway is a notice in the
+        # editor rather than an error on the first task.
+        gateway = budget_mod.gateway_error(self.settings)
         self.ch.send("ready", repo=str(self.settings.repo_root),
+                     gateway=self.settings.bifrost_base_url, gateway_error=gateway,
                      mode=self.privacy.describe(), confidential=self.settings.confidential,
                      tools=sorted(self.registry.specs), quota=quota.describe(),
                      sandbox=shell_mod.sandbox_status(self.settings.sandbox,

@@ -21,6 +21,16 @@ def user_config_path() -> Path:
     return legacy if legacy.exists() and not path.exists() else path
 
 
+def default_trace_dir(project_root: Path) -> Path:
+    """traces/ in a source checkout; the user's state directory for an
+    installed package, whose own directory may be read-only and is
+    replaced on every upgrade."""
+    if (project_root / "pyproject.toml").exists():
+        return project_root / "traces"
+    base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(base) / "himinbjorg" / "traces"
+
+
 def _strip_inline_comment(value: str) -> str:
     """Cut an unquoted `#` comment from a .env value.
 
@@ -218,7 +228,8 @@ def load(argv: list[str] | None = None) -> Settings:
             loop_limits=not args.no_loop_limits,
         )
 
-    trace_dir = Path(args.trace_dir).resolve() if args.trace_dir else project_root / "traces"
+    trace_dir = (Path(args.trace_dir).resolve() if args.trace_dir
+                 else default_trace_dir(project_root))
 
     return Settings(
         bifrost_base_url=env.get("BIFROST_BASE_URL", "http://localhost:8099").rstrip("/"),

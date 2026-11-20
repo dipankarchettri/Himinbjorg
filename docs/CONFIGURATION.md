@@ -26,6 +26,13 @@ result: gateway, keys, each model tier and the sandbox.
 | `AGENT_MODEL_LOCAL_SMALL` | Small local model, default `ollama/qwen3:1.7b` |
 | `AGENT_MODEL_CHEAP`, `AGENT_MODEL_CAPABLE` | Cloud tiers, for example `gemini/gemini-3.1-flash-lite` and `gemini/gemini-3.5-flash`, or `openrouter/anthropic/claude-haiku-5.5` and `openrouter/anthropic/claude-sonnet-5.5` |
 
+The agent picks a tier per step: local for simple steps, cheap by
+default, capable for hard tasks or when a run is stuck. The cheap and capable tiers fail
+over to each other and then to the local model; the local tier has no
+fallback. So without Ollama, `AGENT_MODEL_LOCAL_CODE` must be a cloud
+model too (see `.env.example`, "Cloud only"), and confidential mode,
+which uses only local models, is unavailable.
+
 Local tool calling needs an instruct model: the `qwen2.5-coder` family
 returns tool calls as plain text and cannot drive the agent.
 

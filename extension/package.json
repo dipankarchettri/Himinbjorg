@@ -105,7 +105,7 @@
           "type": "string",
           "default": "himin",
           "scope": "machine",
-          "description": "Path to the himin executable (for example /path/to/himinbjorg/.venv/bin/himin). Machine scope: a workspace cannot change it."
+          "description": "Path to the himin executable. Left at himin, it is found on PATH, then in pipx's bin directory (PIPX_BIN_DIR or ~/.local/bin). Machine scope: a workspace cannot change it."
         },
         "himinbjorg.confidential": {
           "type": "boolean",
@@ -122,7 +122,8 @@
     "test": "npm run compile && node out/test/protocol.test.js",
     "package": "vsce package --out himinbjorg.vsix",
     "test:vscode": "npm run compile && node out/test/vscode/run.js",
-    "test:flow": "npm run compile && node out/test/vscode/run.js flow"
+    "test:flow": "npm run compile && node out/test/vscode/run.js flow",
+    "test:unit": "npm run compile && node out/test/resolve.test.js"
   },
   "devDependencies": {
     "@types/node": "22.20.5",

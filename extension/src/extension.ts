@@ -9,6 +9,7 @@ import { EventEmitter } from "events";
 import * as path from "path";
 import * as vscode from "vscode";
 import { AgentClient, AgentEvent, ApprovalRequest } from "./client";
+import { resolveCommand } from "./resolve";
 import { ChatView, ViewMessage } from "./view";
 
 const DIFF_SCHEME = "himinbjorg-diff";
@@ -104,7 +105,7 @@ function ensureClient(): AgentClient | undefined {
     return undefined;
   }
   // Machine-scoped, so a repository's .vscode/settings.json cannot point it elsewhere.
-  const cmd = vscode.workspace.getConfiguration("himinbjorg").get<string>("command") || "himin";
+  const cmd = resolveCommand(vscode.workspace.getConfiguration("himinbjorg").get<string>("command") || "himin");
   const args = ["--repo", root, ...(confidentialSetting() ? ["--confidential"] : [])];
   const c = new AgentClient(cmd, args, root);
   c.on("event", (ev: AgentEvent) => onEvent(ev));
@@ -112,7 +113,8 @@ function ensureClient(): AgentClient | undefined {
   c.on("spawnError", (err: Error) => {
     view.post({ kind: "error", text: `Could not start ${cmd}: ${err.message}` });
     vscode.window.showErrorMessage(
-      `Himinbjorg: could not start "${cmd}". Set himinbjorg.command to the full path of himin.`,
+      `Himinbjorg: could not start "${cmd}". Install the agent with pipx (see the README), ` +
+        "or set himinbjorg.command to the full path of himin.",
       "Open settings",
     ).then((pick) => pick && vscode.commands.executeCommand("workbench.action.openSettings", "himinbjorg.command"));
   });
@@ -198,6 +200,12 @@ function onEvent(ev: AgentEvent): void {
           (ev.sandbox ? `\nsandbox: ${String(ev.sandbox)}` : ""),
       });
       renderStatus();
+      if (ev.gateway_error) {
+        const text = `The Bifrost gateway at ${String(ev.gateway)} is ${String(ev.gateway_error)}. ` +
+          "Start it with `make up` in the clone, then run `himin doctor` to check the rest.";
+        view.post({ kind: "error", text });
+        vscode.window.showWarningMessage(`Himinbjorg: ${text}`);
+      }
       break;
     case "delta":
       view.post({ kind: "delta", text: String(ev.text ?? "") });
@@ -358,3 +366,4 @@ function renderStatus(): void {
   status.tooltip = [mode || "Not started", servedBy ? `Served by ${servedBy}` : "", "Click to open the agent"]
     .filter(Boolean).join("\n");
 }
+

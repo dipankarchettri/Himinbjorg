@@ -66,20 +66,33 @@ make doctor                          # checks gateway, keys, models, sandbox; sa
 make agent TASK="what does divide() do wrong?" REPO=bench/seed
 ```
 
-To use cloud models instead of a local one, set the tiers in `.env`, for
-example `AGENT_MODEL_CHEAP=gemini/gemini-3.1-flash-lite`. See
+**Cloud only, no Ollama or GPU:** skip the `ollama pull`, add a provider
+key to `.env`, and set all three model tiers to cloud models, for example
+with a Gemini key:
+
+```sh
+GEMINI_API_KEY=...
+AGENT_MODEL_LOCAL_CODE=gemini/gemini-3.1-flash-lite
+AGENT_MODEL_CHEAP=gemini/gemini-3.1-flash-lite
+AGENT_MODEL_CAPABLE=gemini/gemini-3.5-flash
+```
+
+`make doctor` then confirms each tier answers. Confidential mode needs a
+local model. Every setting is in
 [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ## Usage
 
-Put `himin` on your `PATH` and your settings in the user config
-directory, then run it from any repository. The gateway must be up
-(`make up`).
+Install `himin` with [pipx](https://pipx.pypa.io) and put your settings
+in the user config directory, then run it from any repository. An
+installed `himin` reads only that file and the environment, not the
+clone's `.env`. The gateway must be up (`make up` in the clone).
 
 ```sh
-mkdir -p ~/.local/bin ~/.config/himinbjorg
-ln -s "$PWD/.venv/bin/himin" ~/.local/bin/himin
-cp .env ~/.config/himinbjorg/env
+pipx install .                                         # from the clone, or:
+# pipx install git+https://github.com/dipankarchettri/Himinbjorg.git
+mkdir -p ~/.config/himinbjorg && cp .env ~/.config/himinbjorg/env
+himin doctor                                           # check the setup
 
 cd ~/code/some-project
 himin                                                  # interactive session
@@ -115,10 +128,10 @@ code --install-extension extension/himinbjorg.vsix
 ```
 
 Or install `himinbjorg.vsix` from the
-[releases](https://github.com/dipankarchettri/Himinbjorg/releases). Set
-**Himinbjorg: Command** (a User setting) to the full path of `himin`,
-open and trust a repository, then click the Himinbjorg icon in the
-activity bar.
+[releases](https://github.com/dipankarchettri/Himinbjorg/releases). Open
+and trust a repository, then click the Himinbjorg icon in the activity
+bar. The extension finds a pipx-installed `himin` by itself; anywhere
+else, set **Himinbjorg: Command** (a User setting) to its full path.
 
 ![An edit waiting for approval: the exact diff beside a modal dialog](docs/images/vscode-approval.png)
 
