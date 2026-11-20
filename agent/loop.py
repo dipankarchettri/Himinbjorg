@@ -450,7 +450,12 @@ class Agent:
                 answer = result.text.strip() or "(no output)"
                 self.ledger.append(LedgerEntry(turn, "assistant", answer))
                 nudge = None
-                if mutating and not self._edited_this_task and not self._nudged_no_edit:
+                # Not for a question: "in one sentence, what did you change?"
+                # names an edit verb but asks for a report, and the nudge made
+                # the model answer twice (found driving the CLI). No benchmark
+                # prompt ends in "?".
+                if (mutating and not self._edited_this_task and not self._nudged_no_edit
+                        and not task.rstrip().endswith("?")):
                     self._nudged_no_edit = True
                     # Measured: "We will add FREESHIP to COUPONS... Let's make
                     # these changes." and then no tool call.
@@ -464,6 +469,8 @@ class Agent:
                              "the tools, or, if the task is complete, reply with a summary.")
                 if nudge and self._nudges < self.MAX_NUDGES:
                     self._nudges += 1
+                    if result.streamed:
+                        self.print("")      # the next answer starts on its own line
                     self.ledger.append(LedgerEntry(turn, "user", nudge))
                     continue
                 self.answer_streamed = result.streamed

@@ -816,3 +816,17 @@ def test_budget_mode_replaces_old_turns_with_a_summary_near_the_budget(repo):
     ids = {tc["id"] for e in agent.ledger.entries if e.tool_calls for tc in e.tool_calls}
     assert ids <= {e.tool_call_id for e in agent.ledger.entries if e.role == "tool"}
     assert not any("outgrow the context" in (e.content or "") for e in agent.ledger.entries)
+
+
+def test_a_question_naming_an_edit_verb_is_answered_once(repo):
+    # Found driving the CLI: "what did you change?" matched the edit verbs,
+    # the no-edit nudge fired, and the model answered a second time.
+    agent, client = make_agent(repo, [([], "I added a zero check to divide().")])
+    assert agent.run("in one sentence, what did you change?") == "I added a zero check to divide()."
+    assert len(client.specs) == 1
+
+
+def test_an_edit_request_still_gets_the_no_edit_nudge(repo):
+    agent, client = make_agent(repo, [([], "I will add a zero check."), ([], "done")])
+    agent.run("add a zero check to divide()")
+    assert len(client.specs) == 2
