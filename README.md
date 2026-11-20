@@ -44,7 +44,8 @@ Gateway-reported, on 7 benchmark tasks, 10 runs per task in each arm.
 
 On 20 real GitHub issues from SWE-bench Verified (Qwen 3.8, 3 runs
 each) it resolved 37/60 against 32/60 with the levers off, using 63% fewer
-tokens per resolved issue. On the same model and tasks, opencode used 5.6
+tokens per resolved issue; a repeat on a later build resolved 36/60 at 58%
+fewer. On the same model and tasks, opencode used 5.6
 times its tokens. On 28 outside programs (QuixBugs) it passed 84/84
 against 82/84 with 24% fewer tokens. Every table, its conditions and the runs that went the
 other way are in [docs/RESULTS.md](docs/RESULTS.md), backed by the

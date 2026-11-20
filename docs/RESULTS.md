@@ -51,9 +51,12 @@ easiest, single-file fixes, graded by the official harness. Qwen 3.8
 | --- | --- | --- |
 | naive | 32/60 | 446,183 |
 | levers on | 37/60 | 165,409 (63% fewer) |
+| levers on, repeated on a later build | 36/60 | 188,126 (58% fewer) |
 
 Five naive runs outgrew the model's 32k window and were refused; no
-levers-on run did. This is a subset of the easiest issues with a 27B
+levers-on run did. The repeat changed the opening listing of large
+repositories and did not rerun the naive arm; it took 1.8 more turns
+per run, and whether from that change or from chance is not separated. This is a subset of the easiest issues with a 27B
 model, not comparable with full-benchmark leaderboard numbers. The per
 issue table is in `VERIFIED.md`.
 

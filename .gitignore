@@ -46,6 +46,7 @@ evidence/*
 !evidence/opencode-compare-20261120-040443.json
 !evidence/swebench-20261120-005220/
 !evidence/swebench-20261120-005506/
+!evidence/swebench-20261120-115328/
 evidence/swebench-*/logs/
 
 # Bifrost persisted state (databases, logs, vector data).

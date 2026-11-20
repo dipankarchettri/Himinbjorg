@@ -1359,6 +1359,45 @@ ALL                                32/60  37/60
   both arms: 16,164 tokens per resolved issue optimized against 81,434
   (`evidence/swebench-20261120-005220/`).
 
+### A repeat of the optimized arm on a later build (2026-11-20)
+
+The same 20 instances, 3 runs each, levers on only, on commit 4d9e4f0.
+Between the two runs the agent gained the session saving, the git
+sandbox, the grep cap and, the change that reaches these prompts, a
+new opening listing for large repositories: the top level with a file
+count per directory, where it had been the first 60 files in sorted
+order, which in Django or SymPy is most of one subdirectory. The naive
+arm was not rerun. `evidence/swebench-20261120-115328/`.
+
+```
+                                    resolved       tokens, 3 runs
+instance                           before  repeat    before     repeat
+django__django-10880                2/3    1/3      304,331    344,856
+django__django-11239                2/3    0/3      300,210    445,035
+django__django-14752                1/3    2/3      176,542     58,988
+django__django-15315                1/3    2/3       76,496     55,651
+pydata__xarray-4075                 3/3    2/3      266,142    480,597
+sphinx-doc__sphinx-9230             2/3    0/3      443,320    635,963
+sympy__sympy-16766                  1/3    3/3      345,635    180,755
+sympy__sympy-19637                  2/3    3/3      163,563    146,251
+(the other 12 instances resolved the same number of times)
+ALL                                37/60  36/60
+```
+
+- **Resolved: 36/60 against 37/60.** Instances resolved at least once:
+  14 of 20 against 16. Eight instances changed, four each way, by one
+  or two runs of three: about what repeating a 3-run cell at
+  temperature 0.7 gives, so the rate reproduced.
+- **Tokens per resolved issue: 188,126 against 165,409 (14% more).**
+  6.77M tokens in all against 6.12M, mean turns per run 16.6 against
+  14.8, median tokens per run 80,629 against 73,190. Against the naive
+  arm of the first run (446,183) it is 58% fewer, not 63%.
+- **Not separated:** whether the new listing or run-to-run variation
+  explains the extra turns. Two of the eight changed instances
+  (sphinx 9230, xarray 4075) also roughly doubled in tokens; the
+  largest single drop was django 14752.
+- No run errored or outgrew the context window; mean wall time 73 s.
+
 ## opencode on the same tasks, model and gateway (2026-11-20)
 
 opencode 2.3.2 (`@opencode/cli`), `opencode run --auto` with each task's
