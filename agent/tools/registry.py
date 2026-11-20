@@ -129,7 +129,7 @@ class Registry:
             _schema("git_op", "Git: status, diff, add, log, commit.",
                     {"operation": {"type": "string"}, "message": {"type": "string"}},
                     ["operation"]),
-            partial(git_mod.git_op, repo_root=r), mutating=True))
+            partial(git_mod.git_op, repo_root=r, sandbox=self.settings.sandbox), mutating=True))
 
     def _register_search(self) -> None:
         self._add(ToolSpec(

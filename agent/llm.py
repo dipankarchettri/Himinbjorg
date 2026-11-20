@@ -86,6 +86,11 @@ class GatewayUnreachable(GatewayError):
     every provider behind it failed."""
 
 
+class GatewayTimeout(GatewayUnreachable):
+    """The request was sent and nothing came back in time: usually a slow
+    or overloaded provider, not a gateway that is down."""
+
+
 class AllProvidersFailed(GatewayError):
     """Primary and every fallback failed. Carries the primary's error."""
 
@@ -358,7 +363,7 @@ class LLMClient:
         """
         from openai import APIConnectionError, APITimeoutError
         if isinstance(exc, APITimeoutError):
-            raise GatewayUnreachable(f"the gateway at {base_url} did not answer in time") from exc
+            raise GatewayTimeout(f"no answer through the gateway at {base_url} in time") from exc
         if isinstance(exc, APIConnectionError):
             raise GatewayUnreachable(f"cannot reach the gateway at {base_url} "
                                      f"({exc.__cause__ or exc})") from exc

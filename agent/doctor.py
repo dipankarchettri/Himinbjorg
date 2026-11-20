@@ -171,6 +171,11 @@ class Doctor:
             self.add(Check(name, "fail", f"{model}: the {provider} account has no credit",
                            f"add credit at {provider}, or set this tier to another model"))
             return
+        except llm_mod.GatewayTimeout:
+            self.add(Check(name, "warn", f"{model}: no answer within {PROBE_TIMEOUT:.0f} s",
+                           "the provider is slow or overloaded right now; run doctor again, "
+                           "or set this tier to a faster model"))
+            return
         except llm_mod.RateLimited:
             self.add(Check(name, "warn", f"{model}: rate limited right now",
                            "try again shortly; a free tier may be too small for the agent"))

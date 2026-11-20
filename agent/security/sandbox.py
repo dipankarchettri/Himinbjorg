@@ -13,6 +13,8 @@ Landlock only adds restrictions, never removes them, and needs no
 privileges, which is why it was chosen over bubblewrap: Ubuntu 24.04 blocks
 the unprivileged user namespaces bubblewrap depends on.
 
+Used for run_command and the git tool (tools/shell.py, tools/git.py).
+
 Limits, stated plainly: UDP is not restricted (Landlock has no UDP rules),
 reads inside the repository are not limited (the secret shield and output
 redaction cover those), and macOS and Windows have no equivalent here.

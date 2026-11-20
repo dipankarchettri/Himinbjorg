@@ -364,7 +364,7 @@ class RateLimitClient(FakeClient):
 
 def _rate_limited_agent(repo, monkeypatch, limited):
     waits = []
-    monkeypatch.setattr(loop_mod.time, "sleep", waits.append)
+    monkeypatch.setattr(Agent, "_sleep", staticmethod(waits.append))
     base, _ = make_agent(repo, [])
     client = RateLimitClient([([], "done")], limited)
     return Agent(base.settings, base.privacy, client, base.registry,

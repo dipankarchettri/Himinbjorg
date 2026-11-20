@@ -11,10 +11,11 @@ The threat model and the enforcement points are in
   needs your explicit approval, given on the terminal or in a VS Code
   modal dialog that shows the exact diff. Nothing the model reads or
   writes can grant an approval.
-- **Sandbox.** On Linux, an approved shell command runs under Landlock:
-  it can write only inside the repository and temp, and cannot open TCP
-  connections unless you allow it. Not yet covered: the git tool, UDP,
-  and macOS, which has no sandbox.
+- **Sandbox.** On Linux, an approved shell or git command runs under
+  Landlock: it can write only inside the repository and temp, and cannot
+  open TCP connections unless you allow it. Git also ignores the hooks,
+  fsmonitor and diff programs a repository's own config names. Not
+  covered: UDP, and macOS, which has no sandbox.
 - **Credentials.** Credential files are never read, and secrets in any
   tool output are redacted before the model sees them.
 - **Confidential mode.** A repository marked confidential is served only

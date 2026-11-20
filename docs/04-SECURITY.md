@@ -125,8 +125,23 @@ launcher runs under `python -I`, so a repository cannot shadow its imports.
 commands where it is not, `off` disables it. The banner and the editor's
 ready message say which applies.
 
+The git tool runs in the same sandbox, with no network. A repository's own
+git config is untrusted input, and git runs commands it names:
+`core.fsmonitor` on status and diff, hooks on commit, filter drivers on
+add, external diff and textconv programs on diff, `gpg.program` when
+signing. So approving "git status" could run a command the repository
+chose, outside the sandbox. `agent/tools/git.py` overrides the ones that
+can be overridden by name (`core.fsmonitor`, `core.hooksPath`,
+`commit.gpgSign`, `--no-ext-diff --no-textconv`), and the sandbox confines
+the rest: filter drivers cannot be disabled without knowing their names.
+Verified on a repository configured to run a command on status, add and
+commit: plain git ran it on all three; the git tool on none
+(`bench/test_sandbox.py`). The repository listing at the start of a task
+uses `git ls-files` with the same overrides.
+
 Not covered: UDP (Landlock has no UDP rules), reads inside the repository
-(the shield and redaction cover those), the git tool, and macOS or Windows.
+(the shield and redaction cover those), and macOS or Windows, where the git
+tool keeps the overrides but has no sandbox.
 
 ---
 

@@ -188,8 +188,7 @@ Read more: [architecture](docs/02-ARCHITECTURE.md),
 - **Benchmarks are small.** The own tasks are small repositories, the
   SWE-bench run is 20 of Verified's easiest issues, and the
   10-runs-per-task cloud check covers one paid provider.
-- **The sandbox is Linux-only** and does not yet cover the git tool or
-  UDP.
+- **The sandbox is Linux-only** and does not restrict UDP.
 - **The extension needs the agent installed.** It is a front end for
   `himin --serve` and the gateway, not a self-contained package.
 

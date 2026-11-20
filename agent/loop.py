@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,6 +18,7 @@ from .memory.ledger import Ledger, LedgerEntry
 from .security import policy
 from .security import redact as redact_mod
 from .security.policy import InvalidArgs, Permission
+from .tools import git as git_mod
 from .tools import read as read_mod
 from .tools import write as write_mod
 from .tools.registry import Registry
@@ -228,32 +231,76 @@ class Agent:
         self._denials = 0
         self._manifest_text = ""
 
+    MANIFEST_WALK_CAP = 50_000     # files; beyond this the counts are "at least"
+
+    def _repo_files(self, root: Path) -> tuple[list[Path], bool]:
+        """Repo-relative files, and whether the list was cut at the cap.
+
+        In a git repository, what git would track (so .gitignore'd build
+        output and virtualenvs are left out), with the same hardening as
+        the git tool; otherwise a walk. Skipped names are matched below
+        the root only: a repository under a directory called "build" is
+        still listed."""
+        try:
+            proc = subprocess.run(
+                ["git", *git_mod.HARDEN, "ls-files", "--cached", "--others",
+                 "--exclude-standard", "-z"],
+                cwd=str(root), capture_output=True, stdin=subprocess.DEVNULL, timeout=10)
+            names = proc.stdout.decode("utf-8", "replace").split("\0") if proc.returncode == 0 else None
+        except (OSError, subprocess.TimeoutExpired):
+            names = None
+        if names is not None:
+            files = [Path(n) for n in names if n]
+            files = [f for f in files if not (set(f.parts[:-1]) & read_mod.SKIP_DIRS)
+                     and (root / f).is_file()][:self.MANIFEST_WALK_CAP + 1]
+            return files, len(files) > self.MANIFEST_WALK_CAP
+        files = []
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in read_mod.SKIP_DIRS]
+            rel = Path(dirpath).relative_to(root)
+            files.extend(rel / f for f in filenames)
+            if len(files) > self.MANIFEST_WALK_CAP:
+                return files, True
+        return files, False
+
     def _manifest(self, limit: int = 60) -> str:
         """A short listing of the repository, pinned into the opening turn.
 
         Without it a small model burns several turns guessing paths, which
         costs far more tokens than the listing does. Paths are repo-relative
         so the model never has to reason about absolute locations.
+
+        Up to `limit` files, every file is listed. Above it, the top level
+        is listed with a file count per directory: the first 60 paths of a
+        large repository in sorted order are mostly dotfiles from one
+        directory (Django: .editorconfig, .eslintignore, ...), which tells
+        the model nothing about where the code is.
         """
         root = self.settings.repo_root
-        skip = {".git", "node_modules", "__pycache__", ".venv", "venv",
-                "dist", "build", "traces", "evidence", ".pytest_cache"}
-        found: list[str] = []
-        for p in sorted(root.rglob("*")):
-            if any(part in skip for part in p.parts):
-                continue
-            if p.is_file():
-                found.append(str(p.relative_to(root)))
-            if len(found) >= limit:
-                break
-        listing = "\n".join(f"  {f}" for f in found) or "  (empty)"
-        # Measured 2026-11-19, Gemma 31B: 83 of 140 benchmark runs spent
-        # their first turn on list_dir of the root this listing already
-        # shows. Say when it is complete.
-        more = ("\n  ..." if len(found) >= limit
-                else "\nThis is every file; no need to list the root again.")
-        return (f"Repository root: {root}\n"
-                f"Use these exact repo-relative paths with the tools:\n{listing}{more}")
+        files, capped = self._repo_files(root)
+        files.sort()
+        header = f"Repository root: {root}\nUse these exact repo-relative paths with the tools:\n"
+        if len(files) <= limit:
+            listing = "\n".join(f"  {f}" for f in files) or "  (empty)"
+            # Measured 2026-11-19, Gemma 31B: 83 of 140 benchmark runs spent
+            # their first turn on list_dir of the root this listing already
+            # shows. Say when it is complete.
+            return header + listing + "\nThis is every file; no need to list the root again."
+        counts: dict[str, int] = {}
+        top_files = []
+        for f in files:
+            if len(f.parts) == 1:
+                top_files.append(str(f))
+            else:
+                counts[f.parts[0]] = counts.get(f.parts[0], 0) + 1
+        at_least = "at least " if capped else ""
+        rows = [f"  {d}/  ({at_least}{n:,} files)" for d, n in sorted(counts.items())]
+        rows += [f"  {f}" for f in top_files]
+        shown = rows[:limit]
+        more = f"\n  ... and {len(rows) - len(shown)} more entries" if len(rows) > len(shown) else ""
+        return (header + "\n".join(shown) + more +
+                f"\nThe top level only ({at_least}{len(files):,} files in all). "
+                "Use list_dir, grep or symbols to look inside a directory.")
 
     # ---------------------------------------------------------------- run
 
@@ -293,6 +340,12 @@ class Agent:
         finally:
             self._turn_base = self._last_turn
             self._checkpoint()
+
+    @staticmethod
+    def _sleep(seconds: float) -> None:
+        """The rate-limit wait, apart from time.sleep so a test can replace
+        it without also replacing the sleeps inside subprocess."""
+        time.sleep(seconds)
 
     def _checkpoint(self) -> None:
         if self.checkpoint is None:
@@ -363,7 +416,7 @@ class Agent:
                     return "stopped: rate limited"
                 self.print(f"\n  Rate limited: {exc}. Retrying once in "
                            f"{self.RATE_LIMIT_WAIT:.0f} s.")
-                time.sleep(self.RATE_LIMIT_WAIT)
+                self._sleep(self.RATE_LIMIT_WAIT)
                 continue
             except (llm_mod.ModelNotAllowed, llm_mod.AuthFailed) as exc:
                 # Not retryable: a routing or provisioning fault.

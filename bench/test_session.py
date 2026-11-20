@@ -207,3 +207,59 @@ def test_losing_the_gateway_stops_the_task_and_says_it_can_resume(repo):
     assert agent.run("fix divide") == "stopped: the gateway is unreachable"
     assert any("--resume" in line for line in printed)
     assert session_mod.load(repo, False)["entries"]      # saved, ready to resume
+
+
+# ------------------------------------------------------ large repositories
+
+def _git_repo(root, files, ignore=""):
+    import subprocess
+    root.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    if ignore:
+        (root / ".gitignore").write_text(ignore)
+    return root
+
+
+def test_a_small_repository_lists_every_file(repo):
+    agent, _ = make_agent(repo, [])
+    m = agent._manifest()
+    assert "calc.py" in m and "test_calc.py" in m and "This is every file" in m
+
+
+def test_a_large_repository_lists_the_top_level_with_counts(tmp_path):
+    files = {f"pkg/m{i}.py": "x = 1\n" for i in range(80)}
+    files.update({f"tests/t{i}.py": "x = 1\n" for i in range(30)})
+    files["setup.py"] = ""
+    root = _git_repo(tmp_path / "big", files)
+    agent, _ = make_agent(root, [])
+    m = agent._manifest()
+    assert "pkg/  (80 files)" in m and "tests/  (30 files)" in m and "  setup.py" in m
+    assert "m0.py" not in m and "The top level only (111 files in all)" in m
+
+
+def test_ignored_files_are_not_listed(tmp_path):
+    files = {"app.py": "", "venv2/lib/x.py": "", "out/bundle.js": ""}
+    root = _git_repo(tmp_path / "r", files, ignore="venv2/\nout/\n")
+    agent, _ = make_agent(root, [])
+    m = agent._manifest()
+    assert "app.py" in m and "venv2" not in m and "bundle.js" not in m
+
+
+def test_a_repository_under_a_build_directory_is_still_listed(tmp_path):
+    root = tmp_path / "build" / "proj"
+    root.mkdir(parents=True)
+    (root / "main.py").write_text("")         # not a git repository: the walk
+    agent, _ = make_agent(root, [])
+    assert "main.py" in agent._manifest()
+
+
+def test_grep_stops_reading_at_its_cap(tmp_path, monkeypatch):
+    from agent.tools import read as read_mod
+    monkeypatch.setattr(read_mod, "GREP_SCAN_CAP", 100)
+    (tmp_path / "many.py").write_text("hit\n" * 5000)
+    out = read_mod.grep("hit", tmp_path)
+    assert len(out.splitlines()) == read_mod.MAX_GREP_MATCHES + 1
+    assert "more than 100 matches" in out and "Narrow" in out

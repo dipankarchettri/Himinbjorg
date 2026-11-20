@@ -109,6 +109,7 @@ def test_a_model_that_answers_without_a_tool_call_is_flagged(tmp_path):
     (llm_mod.ProviderPaymentRequired("402"), "fail", "credit"),
     (llm_mod.BudgetExceeded("402"), "fail", "budget"),
     (llm_mod.RateLimited("429"), "warn", "again"),
+    (llm_mod.GatewayTimeout("slow"), "warn", "slow"),
     (llm_mod.GatewayError("connection refused"), "fail", "ollama pull local"),
 ])
 def test_probe_errors_say_what_to_do(tmp_path, exc, status, hint):

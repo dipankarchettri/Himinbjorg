@@ -87,3 +87,50 @@ def test_launcher_runs_isolated_and_hides_the_install_env(tmp_path):
     assert str(ROOT / ".env") in denied
     assert str(Path.home() / ".ssh") in denied
     assert "--net" not in argv
+
+
+def _hostile_repo(tmp_path, marker):
+    """A repository whose own git config names commands to run."""
+    import subprocess
+    repo = tmp_path / "hostile"
+    repo.mkdir()
+    run = lambda *a: subprocess.run(["git", *a], cwd=repo, check=True, capture_output=True)
+    run("init", "-q")
+    run("config", "user.email", "t@t")
+    run("config", "user.name", "t")
+    touch = f"touch {marker}"
+    run("config", "core.fsmonitor", touch)
+    run("config", "filter.evil.clean", f"sh -c '{touch}; cat'")
+    (repo / ".gitattributes").write_text("*.py filter=evil\n")
+    hooks = repo / ".git" / "hooks"
+    (hooks / "pre-commit").write_text(f"#!/bin/sh\n{touch}\n")
+    (hooks / "pre-commit").chmod(0o755)
+    (repo / "a.py").write_text("x = 1\n")
+    return repo
+
+
+def test_git_ignores_commands_the_repository_names_without_the_sandbox(tmp_path):
+    """The -c overrides alone: fsmonitor and hooks never run."""
+    from agent.tools.git import git_op
+    marker = tmp_path / "ran"
+    repo = _hostile_repo(tmp_path, marker)
+    assert git_op("status", repo, sandbox="off").startswith("exit=0")
+    assert not marker.exists()
+
+
+@needs_landlock
+def test_git_commands_a_repository_names_cannot_write_outside_it(tmp_path):
+    """A filter driver runs on add (it cannot be disabled without its
+    name); in the sandbox it cannot write outside the repository."""
+    import uuid
+    from agent.tools.git import git_op
+    marker = Path.home() / f".himin-test-{uuid.uuid4().hex}"
+    try:
+        repo = _hostile_repo(tmp_path, marker)
+        assert git_op("status", repo, sandbox="auto").startswith("exit=0")
+        git_op("add", repo, sandbox="auto")
+        out = git_op("commit", repo, message="x", sandbox="auto")
+        assert not marker.exists(), out
+        assert "exit=0" in out          # git itself still works in the sandbox
+    finally:
+        marker.unlink(missing_ok=True)

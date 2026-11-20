@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import threading
 from pathlib import Path
 
 from ..security.policy import is_secret_path
@@ -33,6 +34,8 @@ def whole_file_chars(context_budget_tokens: int) -> int:
     """
     return max(MAX_DEFAULT_CHARS, context_budget_tokens)
 MAX_GREP_MATCHES = 60
+GREP_SCAN_CAP = 2_000       # lines read from grep before it is stopped
+GREP_TIMEOUT = 20.0
 
 
 def read_file(path: str, repo_root: Path, retrieval: bool = True,
@@ -164,11 +167,31 @@ def grep(pattern: str, repo_root: Path, path: str | None = None, **_) -> str:
     # -e and -- keep a pattern or path that starts with "-" from being
     # read as a grep option.
     cmd += ["-e", pattern, "--", target]
+    # Streamed and cut at GREP_SCAN_CAP lines: on a large repository a
+    # common pattern can match hundreds of thousands of lines, which were
+    # all held in memory, or ran past the timeout and returned nothing.
     try:
-        proc = subprocess.run(cmd, capture_output=True, stdin=subprocess.DEVNULL, text=True, timeout=20)
-    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                stdin=subprocess.DEVNULL, text=True, errors="replace")
+    except FileNotFoundError as exc:
         return f"ERROR: grep failed: {exc}"
-    out = proc.stdout.splitlines()
+    timer = threading.Timer(GREP_TIMEOUT, proc.kill)
+    timer.start()
+    out, cut = [], False
+    try:
+        for line in proc.stdout:
+            out.append(line.rstrip("\n"))
+            if len(out) >= GREP_SCAN_CAP:
+                cut = True
+                proc.kill()
+                break
+    finally:
+        timer.cancel()
+        proc.stdout.close()
+        proc.wait()
+    timed_out = not cut and proc.returncode not in (0, 1)
+    if timed_out and not out:
+        return f"ERROR: grep found nothing within {GREP_TIMEOUT:.0f} s; narrow the path"
     # The read tool refuses credentials files; grep must not show their
     # lines either, since its output goes to the model without approval.
     root = str(repo_root) + os.sep
@@ -182,6 +205,9 @@ def grep(pattern: str, repo_root: Path, path: str | None = None, **_) -> str:
     trimmed = [l[:300] for l in out[:MAX_GREP_MATCHES]]
     rel = [l.replace(str(repo_root) + os.sep, "") for l in trimmed]
     more = f"\n[{len(out) - len(trimmed)} more matches not shown]" if len(out) > len(trimmed) else ""
+    if cut or timed_out:
+        more = (f"\n[more than {len(out)} matches; only the first {len(trimmed)} are shown. "
+                "Narrow the pattern or the path]")
     if hidden:
         more += f"\n[{hidden} matches in credentials files withheld]"
     return "\n".join(rel) + more
