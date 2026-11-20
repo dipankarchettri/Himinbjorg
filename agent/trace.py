@@ -33,7 +33,9 @@ def emit(event_type: str, payload: dict[str, Any]) -> None:
     record = {"ts": time.time(), "iso": time.strftime("%Y-%m-%dT%H:%M:%S"), "event": event_type}
     record.update(payload)
     line = json.dumps(record, default=str, ensure_ascii=False)
-    with open(_trace_path, "a", encoding="utf-8") as fh:
+    # Owner only: it holds tool arguments, which include whole files.
+    fd = os.open(_trace_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    with os.fdopen(fd, "a", encoding="utf-8") as fh:
         fh.write(line + "\n")
         fh.flush()
         os.fsync(fh.fileno())

@@ -236,7 +236,8 @@ def _check_argv(argv: list[str], repo_root: Path) -> None:
         if "-delete" in argv:
             raise InvalidArgs("find -delete is refused")
         for i, a in enumerate(argv[:-1]):
-            if a in ("-exec", "-execdir", "-ok", "-okdir") and names[i + 1] in SHELL_DENY:
+            if a in ("-exec", "-execdir", "-ok", "-okdir") and (
+                    names[i + 1] in SHELL_DENY or names[i + 1] in SHELL_INTERPRETERS):
                 raise InvalidArgs(f"find {a} {names[i + 1]!r} is refused")
     root = repo_root.resolve()
     for arg in argv[1:]:

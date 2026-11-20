@@ -67,6 +67,14 @@ def _save_journal() -> None:
     os.replace(tmp, JOURNAL_PATH)
 
 
+def _write(p: Path, text: str) -> None:
+    """Write text in the file's own line endings. Files are read with
+    newlines translated, so writing "\n" back turned a CRLF file into LF
+    on any one-line patch: every line changed (found in review)."""
+    crlf = p.exists() and b"\r\n" in p.read_bytes()
+    p.write_text(text.replace("\r\n", "\n"), encoding="utf-8", newline="\r\n" if crlf else "\n")
+
+
 def _journal_write(p: Path, new_text: str, batch: list | None = None) -> None:
     before = p.read_text(encoding="utf-8") if p.exists() else None
     entry = (p, before, _digest(new_text))
@@ -78,7 +86,7 @@ def _journal_write(p: Path, new_text: str, batch: list | None = None) -> None:
             JOURNAL.append(batch)
     _save_journal()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(new_text, encoding="utf-8")
+    _write(p, new_text)
 
 
 def undo_last() -> str:
@@ -104,7 +112,7 @@ def undo_last() -> str:
         if before is None:
             p.unlink(missing_ok=True)
         else:
-            p.write_text(before, encoding="utf-8")
+            _write(p, before)
         names.append(p.name)
     return "reverted " + ", ".join(dict.fromkeys(reversed(names)))
 
@@ -541,14 +549,24 @@ def _rename_candidates(repo_root: Path, path: str | None):
     from .read import SKIP_DIRS
 
     root = Path(repo_root).resolve()
+
+    def inside(p: Path) -> bool:
+        # A symlinked file in the repository can point anywhere, and this
+        # path writes without the validator: one renamed a file outside
+        # the repository (found in review).
+        real = p.resolve()
+        return (real == root or root in real.parents) and not is_secret_path(
+            os.path.relpath(real, root))
+
     if path:
         p = Path(path)
-        yield from ([p] if p.is_file() else sorted(p.rglob("*")))
+        yield from (q for q in ([p] if p.is_file() else sorted(p.rglob("*")))
+                    if q.is_file() and inside(q))
         return
     seen = 0
     for p in sorted(root.rglob("*")):
         rel = p.relative_to(root)
-        if SKIP_DIRS.intersection(rel.parts) or not p.is_file():
+        if SKIP_DIRS.intersection(rel.parts) or not p.is_file() or not inside(p):
             continue
         if p.suffix not in _CODE_SUFFIXES or is_secret_path(str(rel)):
             continue

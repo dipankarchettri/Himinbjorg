@@ -6,6 +6,7 @@ redirects, command substitution and the refusal list before this runs.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,22 @@ def project_python(repo_root: Path) -> str:
         if cand.exists():
             return str(cand)
     return shutil.which("python3") or shutil.which("python") or sys.executable
+
+
+# Variables that hold credentials, by name. A command the model runs gets
+# none of them: one `print(os.environ)` would put an exported OPENAI_API_KEY
+# or the gateway token into the conversation (found in review).
+_SECRET_ENV = re.compile(
+    r"(^|_)(API_?KEY|ACCESS_?KEY|KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|VK)(_|$)", re.I)
+
+
+def command_env() -> dict[str, str]:
+    env = {k: v for k, v in os.environ.items() if not _SECRET_ENV.search(k)}
+    # No .pyc files: CPython trusts a cached .pyc when the source's mtime
+    # (whole seconds) and size match, so a same-length edit made within a
+    # second of the last run would test stale code.
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    return env
 
 
 # The install directory: its .env holds the provider keys.
@@ -77,6 +94,10 @@ def run_command(command, repo_root: Path, sandbox: str = "off", network: bool = 
         argv = [project_python(repo_root), *argv[1:]]
     elif argv and argv[0] in ("pytest", "py.test"):
         argv = [project_python(repo_root), "-m", "pytest", *argv[1:]]
+    elif argv and os.path.basename(argv[0]) == "git":
+        # As the git tool does: no hooks, fsmonitor or pager the repository chose.
+        from .git import HARDEN
+        argv = [argv[0], *HARDEN, *argv[1:]]
     shown = " ".join(argv)        # what the model asked for, not the launcher
     if sandbox != "off":
         if sandbox_mod.abi_version() >= 1:
@@ -87,11 +108,7 @@ def run_command(command, repo_root: Path, sandbox: str = "off", network: bool = 
     try:
         proc = subprocess.run(
             argv, cwd=str(repo_root), capture_output=True, stdin=subprocess.DEVNULL, text=True,
-            timeout=TIMEOUT_SECONDS, shell=False,
-            # No .pyc files: CPython trusts a cached .pyc when the source's
-            # mtime (whole seconds) and size match, so a same-length edit made
-            # within a second of the last run would test stale code.
-            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            timeout=TIMEOUT_SECONDS, shell=False, env=command_env(),
         )
     except subprocess.TimeoutExpired:
         return f"ERROR: command timed out after {TIMEOUT_SECONDS}s: {shown}"

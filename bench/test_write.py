@@ -283,3 +283,29 @@ def test_read_file_sends_a_small_long_file_whole_and_outlines_a_big_one(tmp_path
     big = tmp_path / "big.py"
     big.write_text(("y = '" + "a" * 60 + "'\n") * (MAX_DEFAULT_CHARS // 40))
     assert "too long to send whole" in read_file(str(big), tmp_path)
+
+
+def test_a_patch_keeps_a_crlf_file_crlf_and_undo_restores_it(tmp_path):
+    from agent.tools import write as w
+    w.use_journal(None)
+    f = tmp_path / "crlf.py"
+    original = b"def a():\r\n    return 1\r\n\r\ndef b():\r\n    return 2\r\n"
+    f.write_bytes(original)
+    w.apply_patch(str(f), "return 2", "return 3", tmp_path)
+    assert f.read_bytes() == original.replace(b"return 2", b"return 3")   # one line changed
+    w.undo_last()
+    assert f.read_bytes() == original
+
+
+def test_rename_does_not_write_through_a_symlink_out_of_the_repository(tmp_path):
+    from agent.tools import write as w
+    w.use_journal(None)
+    repo, outside = tmp_path / "repo", tmp_path / "outside"
+    repo.mkdir()
+    outside.mkdir()
+    (outside / "lib.py").write_text("def helper():\n    return 0\n")
+    (repo / "main.py").write_text("from lib import helper\nhelper()\n")
+    (repo / "linked.py").symlink_to(outside / "lib.py")
+    out = w.rename_symbol("helper", "assist", repo)
+    assert "main.py" in out and "linked.py" not in out
+    assert (outside / "lib.py").read_text().startswith("def helper")

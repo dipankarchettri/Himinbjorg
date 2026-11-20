@@ -24,8 +24,9 @@ carry nothing the model can write:
 - Requests are answered by id. An id is minted here, per approval, and an
   answer for any other id is ignored.
 - The gate sends only what it built itself (tool, resolved arguments,
-  dry-run diff). The extension shows the diff and asks with a native modal
-  dialog; its webview, which renders model text, cannot send approvals.
+  dry-run diff). The extension asks on a card it builds from that, outside
+  the conversation, and accepts an answer only with the request's one-time
+  token (or with a native modal dialog, by setting).
 """
 from __future__ import annotations
 

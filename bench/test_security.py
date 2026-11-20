@@ -493,3 +493,41 @@ def test_a_text_tool_call_with_a_nested_object_is_recovered():
         'then {"name": "read_file", "arguments": {"path": "b"}}')
     assert [c["function"]["name"] for c in calls] == ["write_file", "read_file"]
     assert calls[0]["function"]["arguments"] == '{"path": "a.json", "content": {"x": {"y": 1}}}'
+
+
+def test_commands_get_no_credentials_from_the_environment(monkeypatch):
+    from agent.tools.shell import command_env
+    for k in ("OPENAI_API_KEY", "GITHUB_TOKEN", "AWS_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID",
+              "BIFROST_SETUP_TOKEN", "AGENT_VK", "DB_PASSWORD"):
+        monkeypatch.setenv(k, "x")
+    env = command_env()
+    assert not {"OPENAI_API_KEY", "GITHUB_TOKEN", "AWS_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID",
+                "BIFROST_SETUP_TOKEN", "AGENT_VK", "DB_PASSWORD"} & set(env)
+    assert "PATH" in env and env["PYTHONDONTWRITEBYTECODE"] == "1"
+
+
+def test_find_cannot_exec_a_shell(tmp_path):
+    with pytest.raises(InvalidArgs, match="refused"):
+        policy._check_argv(["find", ".", "-exec", "bash", "-c", "echo hi", "+"], tmp_path)
+
+
+def test_git_through_run_command_is_hardened_like_the_git_tool(tmp_path, monkeypatch):
+    from agent.tools import shell
+    seen = {}
+    monkeypatch.setattr(shell.subprocess, "run",
+                        lambda argv, **kw: seen.setdefault("argv", argv) and
+                        __import__("subprocess").CompletedProcess(argv, 0, "", ""))
+    shell.run_command(["git", "commit", "-m", "x"], tmp_path)
+    assert seen["argv"][:3] == ["git", "-c", "core.fsmonitor=false"]
+    assert "core.hooksPath=/dev/null" in seen["argv"]
+
+
+def test_a_trace_file_is_readable_by_its_owner_only(tmp_path):
+    from agent import trace
+    old = trace.path()
+    try:
+        trace.init(tmp_path / "t.jsonl")
+        trace.emit("x", {})
+        assert (tmp_path / "t.jsonl").stat().st_mode & 0o777 == 0o600
+    finally:
+        trace._trace_path = old
