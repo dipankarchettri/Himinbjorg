@@ -81,10 +81,11 @@ export async function run(): Promise<void> {
   const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
   const calc = path.join(root, "calc.py");
   const original = fs.readFileSync(calc, "utf8");
+  // Opening the panel starts the agent, so listen before opening it.
+  const ready = next(api.events, "ready", 60_000);
   await vscode.commands.executeCommand("himinbjorg.chat.focus");
 
   step("read-only question");
-  const ready = next(api.events, "ready", 60_000);
   const r1 = await ask(api, "What does divide() in calc.py do wrong? One sentence.");
   const rd = await ready;
   console.log("mode:", rd.mode);

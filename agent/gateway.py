@@ -224,6 +224,13 @@ def installed(root: Path | None = None) -> bool:
     return ((root or data_dir()) / "docker-compose.yml").exists()
 
 
+def owns(base_url: str) -> bool:
+    """Is base_url the gateway `himin setup` wrote, so himin may start it?"""
+    from . import config as config_mod
+    configured = config_mod.load_dotenv(config_mod.user_config_path()).get("BIFROST_BASE_URL", "")
+    return installed() and bool(configured) and configured.rstrip("/") == base_url.rstrip("/")
+
+
 def port_free(port: int) -> bool:
     with socket.socket() as s:
         try:

@@ -24,8 +24,10 @@ from bench.test_loop import (FakeClient, GatewayErrorClient, call, make_agent,  
 class FakeChannel:
     def __init__(self):
         self.events: queue.Queue = queue.Queue()
+        self.sent: list[dict] = []          # everything, including what wait() skipped
 
     def send(self, kind, **data):
+        self.sent.append({"type": kind, **data})
         self.events.put({"type": kind, **data})
 
     def wait(self, kind, timeout=10):
@@ -213,4 +215,22 @@ def test_ready_says_whether_the_gateway_is_up(served):
 def test_ready_carries_a_gateway_that_is_down(served):
     srv = served([], gateway_error="not reachable (Connection refused)")
     assert "Connection refused" in srv.ready["gateway_error"]
+
+
+def test_ready_says_when_setup_has_not_run_and_names_the_models(served, monkeypatch):
+    from agent import setup as setup_mod
+    monkeypatch.setattr(setup_mod, "needs_setup", lambda environ=None: True)
+    srv = served([])
+    assert srv.ready["setup_needed"] is True
+    assert srv.ready["models"] and len(set(srv.ready["models"])) == len(srv.ready["models"])
+
+
+def test_the_server_starts_the_gateway_setup_made(served, monkeypatch):
+    from agent import gateway as gw
+    started = []
+    monkeypatch.setattr(gw, "owns", lambda base: True)
+    monkeypatch.setattr(gw, "up", lambda base, env, out=print: started.append(base) or out("  Starting") or "")
+    srv = served([], gateway_error="not reachable (Connection refused)")
+    # The stub health check still says down; what matters is that it tried, on the channel.
+    assert started and any(e.get("text") == "Starting" for e in srv.ch.sent if e.get("type") == "info")
 

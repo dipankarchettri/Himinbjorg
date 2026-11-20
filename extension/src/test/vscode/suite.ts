@@ -34,11 +34,11 @@ export async function run(): Promise<void> {
   const setting = vscode.workspace.getConfiguration("himinbjorg").inspect("command");
   assert.ok(String(setting?.globalValue).endsWith("/.venv/bin/himin"), "machine setting read");
 
+  // Opening the panel starts the agent process, so listen before opening it.
+  const ready = next(api.events, "ready", 60_000);
   await vscode.commands.executeCommand("himinbjorg.chat.focus");
   console.log("agent view opened");
 
-  // The first command starts the agent process; it answers on the channel.
-  const ready = next(api.events, "ready", 60_000);
   const cost = next(api.events, "cost", 60_000);
   await vscode.commands.executeCommand("himinbjorg.cost");
   const r = await ready;

@@ -9,7 +9,8 @@
 
 Events: ready, log, delta, approval_request, result, cost, info, error.
 `ready` carries `gateway_error`, empty when the gateway's health check
-passed.
+passed (a gateway `himin setup` made is started first), `setup_needed`
+when `himin setup` has never run, and `models`, the distinct tier models.
 `delta` is model text as it streams in, JSON-encoded like every event; the
 `result` that follows carries the whole answer.
 
@@ -220,12 +221,25 @@ class Server:
         self.ch.send("result", text=answer, stats=self._stats(before))
 
     def serve(self) -> int:
-        quota = budget_mod.poll(self.settings, self.privacy.virtual_key)
+        from . import gateway as gateway_mod
+        from . import setup as setup_mod
         # Said once at start, so a stopped gateway is a notice in the
         # editor rather than an error on the first task.
         gateway = budget_mod.gateway_error(self.settings)
+        if gateway and gateway_mod.owns(self.settings.bifrost_base_url):
+            # The gateway `himin setup` made: start it, as the CLI does.
+            problem = gateway_mod.up(self.settings.bifrost_base_url,
+                                     config_mod.user_config_path(),
+                                     out=lambda m: self.ch.send("info", text=m.strip()))
+            gateway = problem or budget_mod.gateway_error(self.settings)
+        quota = budget_mod.poll(self.settings, self.privacy.virtual_key)
+        s = self.settings
+        tiers = [s.model_local_code] if s.confidential else [
+            s.model_local_code, s.model_cheap, s.model_capable]
         self.ch.send("ready", repo=str(self.settings.repo_root),
                      gateway=self.settings.bifrost_base_url, gateway_error=gateway,
+                     setup_needed=setup_mod.needs_setup(),
+                     models=list(dict.fromkeys(tiers)),
                      mode=self.privacy.describe(), confidential=self.settings.confidential,
                      tools=sorted(self.registry.specs), quota=quota.describe(),
                      sandbox=shell_mod.sandbox_status(self.settings.sandbox,

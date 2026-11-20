@@ -6,7 +6,12 @@ runs as `himin --serve` in the open folder.
 
 ## What you get
 
-- **Agent view** in the activity bar: ask, follow up, stop, undo, new conversation, cost.
+- **Agent view** in the activity bar: a header with the mode, models and
+  budget used; answers rendered with code blocks you can copy; each tool
+  call as one line with its result; a composer where Enter sends, Shift+Enter
+  starts a new line, the up arrow recalls the last task and Escape stops one.
+  Undo, cost and a new conversation are one click in the header. It follows
+  your light, dark or high-contrast theme.
 - **Approvals as native dialogs.** Every file edit opens the exact diff
   (a dry run against the file on disk) beside a modal dialog: Approve,
   Approve all edits this session, or Cancel. Commands and git ask every time.
@@ -20,13 +25,19 @@ runs as `himin --serve` in the open folder.
 
 ## Setup
 
-1. Install the agent and start the gateway (see the main README:
-   `pipx install .` and `make up`; `himin doctor` checks both).
-2. Install the extension: `code --install-extension himinbjorg.vsix`.
-3. Open a repository folder and click the Himinbjorg icon. The extension
-   finds `himin` on `PATH` or in pipx's bin directory (`~/.local/bin`);
-   anywhere else, set **Himinbjorg: Command** to its full path (a User
-   setting). If the gateway is not running, it says so when it starts.
+1. Install the agent: `pipx install git+https://github.com/dipankarchettri/Himinbjorg.git`.
+2. Install the extension: download `himinbjorg.vsix` from the latest
+   release, then `code --install-extension himinbjorg.vsix`.
+3. Open a repository folder and click the Himinbjorg icon. The first time,
+   the panel offers **Run setup in a terminal**: choose a provider, paste
+   its key, set a monthly limit, and setup starts the gateway and checks
+   each model. The agent restarts by itself when it finishes. After that,
+   opening the panel starts the gateway if it has stopped.
+
+The extension finds `himin` on `PATH` or in pipx's bin directory
+(`~/.local/bin`); anywhere else, set **Himinbjorg: Command** to its full
+path (a User setting). If the gateway still cannot be reached, the panel
+says so, with buttons that run `himin doctor` or setup.
 
 ## Security model
 

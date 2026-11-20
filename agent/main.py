@@ -42,12 +42,6 @@ def banner(settings, privacy, registry) -> str:
     ])
 
 
-def _own_gateway(settings) -> bool:
-    """Is the configured gateway the one `himin setup` wrote?"""
-    configured = config_mod.load_dotenv(config_mod.user_config_path()).get("BIFROST_BASE_URL", "")
-    return gateway_mod.installed() and configured.rstrip("/") == settings.bifrost_base_url
-
-
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     if "--serve" in args:
@@ -91,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     if not styled:
         print(banner(settings, privacy, registry))
     down = budget_mod.gateway_error(settings)
-    if down and _own_gateway(settings):
+    if down and gateway_mod.owns(settings.bifrost_base_url):
         # The gateway `himin setup` made: start it rather than send the user off.
         problem = gateway_mod.up(settings.bifrost_base_url, config_mod.user_config_path(),
                                  out=(lambda m: print(terminal.dim(m))) if styled else print)

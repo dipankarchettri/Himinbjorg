@@ -104,8 +104,7 @@ function ensureClient(): AgentClient | undefined {
     vscode.window.showWarningMessage("Himinbjorg needs an open folder: the agent works inside one repository.");
     return undefined;
   }
-  // Machine-scoped, so a repository's .vscode/settings.json cannot point it elsewhere.
-  const cmd = resolveCommand(vscode.workspace.getConfiguration("himinbjorg").get<string>("command") || "himin");
+  const cmd = agentCommand();
   const args = ["--repo", root, ...(confidentialSetting() ? ["--confidential"] : [])];
   const c = new AgentClient(cmd, args, root);
   c.on("event", (ev: AgentEvent) => onEvent(ev));
@@ -162,9 +161,54 @@ function onViewMessage(msg: ViewMessage): void {
     case "cancel":
       client?.send({ type: "cancel" });
       break;
+    case "visible":
+      // Start the agent when the panel opens, so the header, a setup card
+      // or a gateway problem shows before the first task.
+      if (repoRoot()) {
+        ensureClient();
+      }
+      break;
+    case "setup":
+    case "doctor":
+      runInTerminal(msg.type);
+      break;
     default:
       command(msg.type);
   }
+}
+
+function agentCommand(): string {
+  // Machine-scoped, so a repository's .vscode/settings.json cannot point it elsewhere.
+  return resolveCommand(vscode.workspace.getConfiguration("himinbjorg").get<string>("command") || "himin");
+}
+
+// `himin setup` asks for a key with hidden input and `himin doctor` prints a
+// report, so both run in a real terminal. When setup succeeds the terminal
+// closes by itself and the agent restarts on the new settings.
+function runInTerminal(sub: "setup" | "doctor"): void {
+  const cmd = agentCommand();
+  const quoted = /\s/.test(cmd) ? `"${cmd}"` : cmd;
+  const term = vscode.window.createTerminal({
+    name: sub === "setup" ? "Himinbjorg setup" : "Himinbjorg doctor",
+    cwd: repoRoot(),
+  });
+  term.show();
+  term.sendText(sub === "setup" ? `${quoted} setup && exit` : `${quoted} doctor`);
+  if (sub !== "setup") {
+    return;
+  }
+  const watch = vscode.window.onDidCloseTerminal((closed) => {
+    if (closed !== term) {
+      return;
+    }
+    watch.dispose();
+    if (closed.exitStatus?.code === 0) {
+      client?.stop();
+      client = undefined;
+      view.post({ kind: "clear", text: "" });
+      ensureClient();
+    }
+  });
 }
 
 async function askAboutSelection(): Promise<void> {
@@ -195,15 +239,22 @@ function onEvent(ev: AgentEvent): void {
       mode = String(ev.mode ?? "");
       confidential = ev.confidential === true;
       view.post({
-        kind: "info",
-        text: `Ready in ${path.basename(String(ev.repo))} · ${mode}\n${ev.quota ?? ""}` +
-          (ev.sandbox ? `\nsandbox: ${String(ev.sandbox)}` : ""),
+        kind: "meta",
+        text: JSON.stringify({
+          repo: path.basename(String(ev.repo)), mode, confidential,
+          models: Array.isArray(ev.models) ? ev.models : [], quota: String(ev.quota ?? ""),
+          sandbox: String(ev.sandbox ?? ""),
+        }),
       });
       renderStatus();
-      if (ev.gateway_error) {
+      if (ev.setup_needed) {
+        view.post({ kind: "setup", text: "" });
+        vscode.window.showInformationMessage("Himinbjorg needs a one-minute setup: a model provider and its key.",
+          "Run setup").then((pick) => pick && runInTerminal("setup"));
+      } else if (ev.gateway_error) {
         const text = `The Bifrost gateway at ${String(ev.gateway)} is ${String(ev.gateway_error)}. ` +
-          "Start it with `make up` in the clone, then run `himin doctor` to check the rest.";
-        view.post({ kind: "error", text });
+          "Start it with `himin gateway up` (or `make up` in a clone); `himin doctor` checks the rest.";
+        view.post({ kind: "gateway", text });
         vscode.window.showWarningMessage(`Himinbjorg: ${text}`);
       }
       break;
