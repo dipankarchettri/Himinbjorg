@@ -65,6 +65,17 @@ def test_a_long_repository_path_still_fits_the_box(monkeypatch):
     assert "/repo" in w
 
 
+def test_a_long_resume_notice_wraps_inside_the_box(monkeypatch):
+    import os
+    monkeypatch.setattr(terminal.shutil, "get_terminal_size", lambda *a: os.terminal_size((96, 24)))
+    notice = ("  A session from 0 min ago is saved for this repository; `himin --resume` "
+              "continues it. Starting a new one replaces it.\n")
+    w = plain(terminal.welcome("0.6.0", "/r", "standard", "on", ["a", "b"], "$0", notice))
+    rows = [l for l in w.splitlines() if l.strip() and l.strip()[0] in "│╭╰"]
+    assert len({len(l) for l in rows}) == 1 and max(len(l) for l in rows) <= 96
+    assert "--resume" in w and "replaces" in w
+
+
 def _box(keys: str):
     import pytest
     pytest.importorskip("prompt_toolkit")
@@ -94,3 +105,21 @@ def test_the_input_box_ctrl_d_on_empty_exits():
     import pytest
     with pytest.raises(EOFError):
         _box("\x04")
+
+
+def test_a_streamed_answer_wraps_between_words(monkeypatch):
+    import io
+    import os
+    from agent import main as main_mod
+    monkeypatch.setattr(main_mod.shutil, "get_terminal_size", lambda *a: os.terminal_size((30, 24)))
+    out = io.StringIO()
+    live = main_mod.LiveText(out=out, styled=True)
+    text = "The divide function does not handle division by zero and raises ZeroDivisionError.\nDone"
+    for i in range(0, len(text), 7):                # arrives in pieces that split words
+        live.text(text[i:i + 7])
+    live.finish()
+    lines = plain(out.getvalue()).split("\n")
+    assert all(len(l) <= 30 for l in lines)
+    assert "ZeroDivisionError." in plain(out.getvalue()).split()
+    assert lines[-1] == "Done"
+    assert " ".join(plain(out.getvalue()).replace("●", "").split()) == " ".join(text.split())

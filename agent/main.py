@@ -1,6 +1,8 @@
 """CLI entry point."""
 from __future__ import annotations
 
+import re
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -110,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
               else terminal.dim(f"\n  Himinbjorg  ·  {settings.repo_root}  ·  {privacy.describe()}\n"))
 
     if task:
-        return run_one(agent, settings, task)
+        return run_one(agent, settings, task, live)
     if not sys.stdin.isatty():
         print("  No task given, and stdin is not a terminal. Pass a task as an argument.")
         return 1
@@ -129,20 +131,60 @@ class LiveText:
         self.mid_line = False
         self.styled = styled
         self.answering = False
+        self.col = 0
+        self.word = ""          # held back until it ends, so it can move to the next line whole
 
     def text(self, piece: str) -> None:
-        if self.styled and not self.answering:
+        if not self.styled:
+            self.out.write(piece)
+            self.out.flush()
+            self.mid_line = not piece.endswith("\n")
+            return
+        if not self.answering:
             self.out.write("\n" + terminal.bold("●") + " ")
-            self.answering = True
-        self.out.write(piece)
+            self.answering, self.col = True, 2
+        parts = re.split(r"(\s)", self.word + piece)
+        self.word = parts.pop()
+        for part in parts:
+            self._put(part)
         self.out.flush()
-        self.mid_line = not piece.endswith("\n")
+        self.mid_line = self.col > 0 or bool(self.word)
+
+    def _put(self, part: str) -> None:
+        if not part:
+            return
+        if part == "\n":
+            self.out.write(part)
+            self.col = 0
+            return
+        cols = shutil.get_terminal_size((80, 24)).columns
+        if part.isspace():
+            if self.col < cols:             # never start a line with a space
+                self.out.write(part)
+                self.col += len(part)
+            return
+        if self.col and self.col + len(part) > cols:
+            self.out.write("\n")
+            self.col = 0
+        self.out.write(part)
+        self.col += len(part)
+        if self.col > cols:                 # a word longer than a line: the terminal wrapped it
+            self.col %= cols
+
+    def finish(self) -> None:
+        """Write the last word of an answer."""
+        if self.word:
+            self._put(self.word)
+            self.word = ""
+            self.out.flush()
 
     def line(self, *args, **kwargs) -> None:
+        self.finish()
         if self.mid_line:
             self.out.write("\n")
             self.mid_line = False
         self.answering = False
+        self.col = 0
         if self.styled:
             args = tuple(terminal.style_line(str(a)) for a in args)
         print(*args, file=self.out, **kwargs)
@@ -206,7 +248,7 @@ def report(agent, settings, before: dict | None = None, label: str = "") -> dict
     return s
 
 
-def run_one(agent, settings, task: str) -> int:
+def run_one(agent, settings, task: str, live: LiveText | None = None) -> int:
     try:
         answer = agent.run(task)
     except PrivacyViolation as exc:
@@ -217,6 +259,9 @@ def run_one(agent, settings, task: str) -> int:
     except KeyboardInterrupt:
         print("\n  Interrupted. Session trace:", trace.path())
         return 130
+    finally:
+        if live:
+            live.finish()
 
     if terminal.enabled():
         print("" if agent.answer_streamed else "\n" + terminal.bold("●") + " " + answer)
@@ -312,6 +357,9 @@ def repl(agent, settings, live: LiveText | None = None) -> int:
         except KeyboardInterrupt:
             print("\n  Interrupted. The conversation so far is kept.")
             continue
+        finally:
+            if live:
+                live.finish()
         if styled:
             print("" if agent.answer_streamed else "\n" + terminal.bold("●") + " " + answer)
         else:

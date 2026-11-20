@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import sys
+import textwrap
 
 # The deck's palette, as 256-colour codes: amber, sky, blue.
 AMBER, SKY, BLUE = 179, 117, 32
@@ -98,7 +99,10 @@ def welcome(version: str, repo: str, mode: str, sandbox: str, models: list[str],
         f"{dim('budget ')} {budget}",
     ]
     if resumed:
-        rows += ["", fg(SKY, resumed)]
+        # Wrapped to the box, so a long notice cannot push its border out.
+        cols = shutil.get_terminal_size((80, 24)).columns
+        room = min(max([width(r) for r in rows] + [56]), max(40, cols - 6))
+        rows += [""] + [fg(SKY, l) for l in textwrap.wrap(resumed.strip(), room)]
     hint = dim("  /help for commands  ·  /undo reverts an edit  ·  Ctrl-C interrupts  ·  /exit")
     return "\n".join([""] + wordmark() + [""] + box(rows) + [hint, ""])
 
