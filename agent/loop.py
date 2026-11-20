@@ -14,7 +14,7 @@ from . import llm as llm_mod
 from . import router as router_mod
 from . import trace
 from .memory.files import FileMemory
-from .memory.ledger import Ledger, LedgerEntry
+from .memory.ledger import Ledger, LedgerEntry, estimate_tokens
 from .security import policy
 from .security import redact as redact_mod
 from .security.policy import InvalidArgs, Permission
@@ -205,6 +205,8 @@ class Agent:
     MAX_NUDGES = 2          # pushes back on text-only replies that are not an answer
     ANSWER_BY = 8           # turns of reading before a question is asked for its answer
     ANSWER_NOW = 12         # ...and before it gets one last call, with tools off, to answer
+    MAX_OUT = 16384         # output tokens per call, at most; every provider used accepts it
+    LOCAL_PROVIDERS = ("ollama/", "vllm/")  # models on this machine, with small windows
     MAX_DENIALS = 2         # operator denials in one task before control returns to them
     # Sticky failover lasts this long, then the primary is tried again.
     # Measured on a Gemini free tier: a 429 carried retry_after 34 s, and a
@@ -261,6 +263,7 @@ class Agent:
         self._nudged_empty = False
         self._cut_off = ""          # an answer the output limit cut, being continued
         self._continued = 0
+        self._max_out = 0           # the output limit of the latest call
         self._out_scale = 1         # doubles when a reply hit max_tokens before any answer
         self._skip_cache = False    # once, for a retry the cache would answer with the same reply
         self._denials = 0
@@ -419,6 +422,7 @@ class Agent:
         self._nudged_empty = False
         self._cut_off = ""          # an answer the output limit cut, being continued
         self._continued = 0
+        self._max_out = 0           # the output limit of the latest call
         self._out_scale = 1
         self._skip_cache = False
         self._denials = 0
@@ -506,7 +510,10 @@ class Agent:
                 # whole limit went on reasoning and the reply was empty,
                 # shown as "(no output)". Retry with room to answer, past
                 # the cache, which would replay the empty reply.
-                if result.finish_reason == "length" and self._out_scale < 4:
+                # Only if there is more room to give: at the ceiling a retry
+                # is the same call again.
+                if (result.finish_reason == "length" and self._out_scale < 4
+                        and self._max_out < self.MAX_OUT):
                     self._out_scale *= 2
                     self._skip_cache = same_turn = True
                     trace.emit("empty_reply", {"finish_reason": "length",
@@ -739,28 +746,41 @@ task in this reply."""
         self.ledger.append(LedgerEntry(
             turn, "user", "Stop reading. Answer the task now, completely, from what you have "
                           "found. Say what you could not check."))
-        text = ""
+        text = piece = ""
         # Everything it read, not the pruned view, fitted to the context
         # window: one call, so worth it. Found: a review said it could not
         # check requires-python because its read of pyproject.toml was elided.
         mode, self.ledger.mode = self.ledger.mode, "budget"
         try:
-            for _ in range(3):          # room to answer, as for an empty reply
+            for _ in range(5):          # room to answer, or the rest of a cut answer
                 try:
                     result, _ = self._call(decision, turn, False, tools_off=True)
                 except llm_mod.GatewayError as exc:
                     trace.emit("error", {"kind": type(exc).__name__, "detail": str(exc)[:400],
                                          "during": "answer_now"})
                     break
-                text = (result.text or "").strip()
-                if text or result.finish_reason != "length":
+                piece = (result.text or "").strip()
+                if piece and result.finish_reason == "length" and self._continued < 2:
+                    # Cut by the limit: continue it, as in the main loop.
+                    # Found: a forced review answer stopped mid code block.
+                    self._continued += 1
+                    text += piece + " "
+                    self.ledger.append(LedgerEntry(turn, "assistant", piece))
+                    self.ledger.append(LedgerEntry(
+                        turn, "user", "Your answer was cut off by the output limit. Continue "
+                                      "it from the next word, without repeating anything."))
+                    self._skip_cache = True
+                    continue
+                text = (text + piece).strip()
+                if text or result.finish_reason != "length" or self._max_out >= self.MAX_OUT:
                     break
                 self._out_scale *= 2
                 self._skip_cache = True
         finally:
             self.ledger.mode = mode
         answer = text or "The model kept reading and gave no answer. Ask a narrower question."
-        self.ledger.append(LedgerEntry(turn, "assistant", answer))
+        # The parts before a cut are in the ledger already.
+        self.ledger.append(LedgerEntry(turn, "assistant", piece if piece and text != piece else answer))
         self.answer_streamed = False
         return answer
 
@@ -803,8 +823,20 @@ task in this reply."""
             fallbacks = [m for m in [*fallbacks, model] if m != sticky]
             model = sticky
 
+        # By provider, not by the configured names: a machine without local
+        # models may point the local slots at a cloud model.
+        local = self.settings.confidential or model.startswith(self.LOCAL_PROVIDERS)
+        self.ledger.context_budget = (self.settings.context_budget if local
+                                      else self.settings.cloud_context_budget)
+        messages = self.ledger.render(turn)
+        if not local and sum(estimate_tokens(m.get("content") or "") for m in messages) \
+                > self.settings.context_budget:
+            # Too big for a local model's window, which would drop the
+            # start of the prompt (the task) and answer anyway.
+            fallbacks = [m for m in fallbacks if not m.startswith(self.LOCAL_PROVIDERS)]
+
         spec = llm_mod.CallSpec(
-            messages=self.ledger.render(turn),
+            messages=messages,
             model=model,
             fallbacks=fallbacks,
             tools=self.registry.schemas(mutating_allowed=mutating,
@@ -823,14 +855,20 @@ task in this reply."""
             # 1,200 cap would make the baseline unable to edit at all.
             # A question's answer is prose, often long; 1,200 cut DeepSeek's
             # CI review mid-sentence, its reasoning counting against it.
-            max_tokens=(1200 if self.settings.levers.diff_writes and mutating else 4096)
-                       * self._out_scale,
+            # A reasoning model spends the limit before it writes, and a
+            # reply cut there is empty and paid for twice: 69k of the 320k
+            # tokens of a three-file review went on two such calls. Unused
+            # room costs nothing, so a cloud model gets 16k for a question;
+            # a local one keeps 4k, its prompt and limit sharing one window.
+            max_tokens=min((1200 if self.settings.levers.diff_writes and mutating
+                            else 4096 if local else self.MAX_OUT) * self._out_scale, self.MAX_OUT),
             temperature=self.settings.temperature,
             on_text=None if tools_off else self.on_text,
             # Tools stay declared: a history with tool calls and no tool
             # definitions is refused by some providers (Anthropic).
             tool_choice="none" if tools_off else "auto",
         )
+        self._max_out = spec.max_tokens
         result = self.client.call(spec)
         if result.routing.is_fallback and result.routing.provider:
             self._sticky[decision.tier] = (result.routing.describe(),

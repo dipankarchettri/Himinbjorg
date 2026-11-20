@@ -49,17 +49,21 @@ def test_unseen_results_that_fit_are_left_whole():
     assert all("cut to fit" not in m["content"] and len(m["content"]) > 1000 for m in out[-3:])
 
 
-def test_elided_tokens_describe_the_latest_request_and_do_not_add_up():
+def test_elided_tokens_are_counted_once_per_request_and_never_for_estimates():
     ledger = Ledger(context_budget=100_000, keep_recent_turns=1, prune_step=1)
     ledger.append(LedgerEntry(0, "user", "task", pinned=True, kind="task"))
     _batch(ledger, 0, 1, 4000)
     for turn in range(1, 6):
         ledger.append(LedgerEntry(turn, "user", "go on"))
-    first = (ledger.render(5), ledger.elided_tokens)[1]
+    ledger.render(5)
+    first = ledger.elided_tokens
     for _ in range(20):
-        ledger.estimate(5)
-        ledger.render(5)
-    assert first > 900 and ledger.elided_tokens == first
+        ledger.estimate(5)                       # not requests: count nothing
+    for _ in range(2):
+        ledger.render(5)                         # two more requests
+    stats = ledger.stats()
+    assert first > 900 and stats["elided_last_request_estimate"] == first
+    assert stats["elided_tokens_estimate"] == 3 * first
 
 
 def test_the_ledger_prunes_in_the_measured_steps_by_default():

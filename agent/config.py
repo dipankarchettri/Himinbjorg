@@ -146,7 +146,11 @@ class Settings:
     # when it does not, "off" to run them with the user's full rights.
     sandbox: str = "auto"
     sandbox_network: bool = False
-    context_budget: int = 28_000
+    context_budget: int = 28_000        # for a local model's 32k window
+    # For cloud models, whose windows are far larger. At 28k a review of
+    # three files sat at the ceiling for most of its calls and re-read
+    # what was elided: ledger.py four times, 320k tokens in all.
+    cloud_context_budget: int = 64_000
     # How the pruning lever manages the context. "turns": elide tool
     # results older than a few turns (the measured default). "budget":
     # keep everything verbatim, so the prompt prefix stays cacheable, and
@@ -253,6 +257,7 @@ def load(argv: list[str] | None = None) -> Settings:
         sandbox=_sandbox_mode(env.get("AGENT_SANDBOX", "auto")),
         sandbox_network=env.get("AGENT_SANDBOX_NETWORK", "0").strip().lower() in ("1", "true", "yes"),
         context_budget=int(env.get("AGENT_CONTEXT_TOKENS", "28000")),
+        cloud_context_budget=int(env.get("AGENT_CLOUD_CONTEXT_TOKENS", "64000")),
         prune_mode=_prune_mode(env.get("AGENT_PRUNE_MODE", "turns")),
         resume=args.resume,
         repo_root=repo_root,

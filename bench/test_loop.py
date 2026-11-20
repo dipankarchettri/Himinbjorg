@@ -1022,3 +1022,53 @@ def test_a_question_gets_room_for_its_answer_and_an_edit_keeps_the_small_limit(r
     agent2, client2 = make_agent(repo, [([], "done")])
     agent2.run("fix divide() in calc.py")
     assert client.specs[0].max_tokens == 4096 and client2.specs[0].max_tokens == 1200
+
+
+def _cloud(agent):
+    import dataclasses
+    agent.settings = dataclasses.replace(agent.settings, model_cheap="openrouter/x", model_capable="gemini/y")
+    return agent
+
+
+def test_a_cloud_model_gets_room_for_reasoning_and_a_larger_context(repo):
+    # Measured on a three-file review (DeepSeek): two calls whose reasoning
+    # filled 4,096 and 8,192 tokens came back empty and were paid twice, and
+    # the context sat at the 28k ceiling, re-reading what was elided.
+    agent, client = make_agent(repo, [([], "It divides.")])
+    _cloud(agent).run("what does divide do?")
+    assert client.specs[0].max_tokens == Agent.MAX_OUT
+    assert agent.ledger.context_budget == agent.settings.cloud_context_budget == 64_000
+
+
+def test_a_local_model_keeps_its_window(repo):
+    agent, client = make_agent(repo, [([], "It divides.")])
+    agent.run("what does divide do?")
+    assert client.specs[0].max_tokens == 4096
+    assert agent.ledger.context_budget == 28_000
+
+
+def test_an_empty_reply_at_the_output_ceiling_is_not_sent_again_unchanged(repo):
+    agent, client = make_agent(repo, [([], "", "length"), ([], "The answer.")])
+    assert _cloud(agent).run("what does divide do?") == "The answer."
+    assert "Your reply was empty" in client.specs[1].messages[-1]["content"]   # asked, not repeated
+
+
+def test_a_prompt_too_big_for_the_local_window_does_not_fall_back_to_it(repo):
+    big = [([call("grep", pattern=f"x{i}")], "") for i in range(3)]
+    agent, client = make_agent(repo, [*big, ([], "done")])
+    _cloud(agent)
+    import dataclasses
+    agent.settings = dataclasses.replace(agent.settings, context_budget=50)
+    agent.run("what does divide do?")
+    assert client.specs[0].fallbacks and "ollama/b" not in client.specs[-1].fallbacks
+
+
+def test_a_forced_answer_cut_by_the_limit_is_continued(repo):
+    reads = [([call("grep", pattern=f"x{i}")], "") for i in range(Agent.ANSWER_NOW)]
+    agent, client = make_agent(repo, [*reads, ([], "1. ledger.py: the count", "length"),
+                                      ([], "grows on every render.", "stop")])
+    agent.settings = __import__("dataclasses").replace(agent.settings, max_turns=25)
+    assert agent.run("Review my uncommitted changes") == "1. ledger.py: the count grows on every render."
+    assert "cut off" in client.specs[-1].messages[-1]["content"]
+    assert [e.content for e in agent.ledger.entries if e.role == "assistant"][-2:] == \
+        ["1. ledger.py: the count", "grows on every render."]

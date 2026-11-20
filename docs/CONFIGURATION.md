@@ -50,8 +50,9 @@ returns tool calls as plain text and cannot drive the agent.
 
 | Key | Purpose |
 | --- | --- |
-| `AGENT_CONTEXT_TOKENS` | Context budget in estimated tokens, default 28000 (for a 32k window). Keep it below the local model's window. A file up to a quarter of it is sent whole |
-| `AGENT_PRUNE_MODE` | `turns` (default): old tool output is pruned every few turns. `budget`: the context is kept verbatim and older turns are replaced by a structured summary only near `AGENT_CONTEXT_TOKENS`. Use `budget` with a provider that has prompt caching: on Claude Haiku it was 82% cheaper than the naive baseline against 71% for `turns`. On a local model it used 60% more tokens than `turns` (Qwen 3.8), since nothing discounts the repeated context |
+| `AGENT_CONTEXT_TOKENS` | Context budget for local models (`ollama/`, `vllm/`) in estimated tokens, default 28000 (for a 32k window). Keep it below the local model's window. A file up to a quarter of it is sent whole |
+| `AGENT_CLOUD_CONTEXT_TOKENS` | Context budget for cloud models, default 64000. At 28000 a DeepSeek review of three files sat at the ceiling and re-read what was elided. A cloud call whose context is over the local budget does not fall back to the local model |
+| `AGENT_PRUNE_MODE` | `turns` (default): old tool output is pruned every few turns. `budget`: the context is kept verbatim and older turns are replaced by a structured summary only near `AGENT_CONTEXT_TOKENS`. Use `budget` with a provider that has prompt caching: on Claude Haiku it was 82% cheaper than the naive baseline against 71% for `turns`. On a local model it used 60% more tokens than `turns` (Qwen 3.8), since nothing discounts the repeated context. On DeepSeek V4.1 Flash a three-file review used 436k tokens ($0.060) in `budget` against 230k ($0.028) in `turns`: with everything kept, it read more widely |
 | `AGENT_PRUNE_STEP` | Default `4`: with `turns`, the pruning boundary moves in steps, so the prompt prefix stays stable and provider prompt caching hits. On Claude it cut input cost by about a quarter against `1` |
 
 ## Sandbox

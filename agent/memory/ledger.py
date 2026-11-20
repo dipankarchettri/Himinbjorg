@@ -62,6 +62,7 @@ class Ledger:
     mode: str = "turns"
     entries: list[LedgerEntry] = field(default_factory=list)
     elided_tokens: int = 0      # left out of the latest request
+    elided_total: int = 0       # left out, summed over the requests sent
     compacted_tokens: int = 0   # replaced by summaries, over the session
 
     def append(self, entry: LedgerEntry) -> None:
@@ -81,9 +82,9 @@ class Ledger:
 
     def render(self, current_turn: int, fit: bool = True) -> list[dict[str, Any]]:
         """The messages of the next request. With fit, it is the request
-        itself, and elided_tokens records what it leaves out; the count is
-        not added up across renders, which happen once per request and
-        again for estimates."""
+        itself (one render per request), and what it leaves out is recorded;
+        estimates render without fit and count nothing. They used to, so the
+        run total grew with every estimate as well."""
         out: list[dict[str, Any]] = []
         elided = 0
         horizon = self.horizon(current_turn)
@@ -115,6 +116,7 @@ class Ledger:
             return out
         out, cut = self._fit_budget(out)
         self.elided_tokens = elided + cut
+        self.elided_total += self.elided_tokens
         return out
 
     def estimate(self, current_turn: int) -> int:
@@ -226,7 +228,8 @@ class Ledger:
     def stats(self) -> dict:
         return {
             "entries": len(self.entries),
-            "elided_tokens_estimate": self.elided_tokens,
+            "elided_tokens_estimate": self.elided_total,
+            "elided_last_request_estimate": self.elided_tokens,
             "compacted_tokens_estimate": self.compacted_tokens,
             "raw_tokens_estimate": sum(e.tokens for e in self.entries),
         }
