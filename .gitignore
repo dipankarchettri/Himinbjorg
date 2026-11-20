@@ -48,6 +48,7 @@ evidence/*
 !evidence/swebench-20261120-005220/
 !evidence/swebench-20261120-005506/
 !evidence/swebench-20261120-115328/
+!evidence/click-20261120-201551/
 evidence/swebench-*/logs/
 
 # Bifrost persisted state (databases, logs, vector data).
@@ -70,3 +71,4 @@ extension/.vscode-test/
 # SWE-bench harness environment and its dataset/repository cache
 .venv-swebench/
 bench/.swebench/
+bench/.realrepo/

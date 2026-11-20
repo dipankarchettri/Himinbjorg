@@ -1438,3 +1438,49 @@ ALL           35/35     126,759       70/70      22,499          35,046
 - opencode takes its project directory from `$PWD`, not the process's
   working directory; the harness sets it per run, and stops if this
   checkout changes during a run.
+
+## Real click bugs, on Claude Haiku 5.5 (2026-11-20)
+
+`bench/realrepo_run.py`, evidence in `evidence/click-20261120-201551/`.
+Six bugs the click maintainers fixed, each run from the commit before
+the fix and graded by the fix's tests plus click's whole suite, 5 runs
+per bug per arm, Claude Haiku 5.5 through OpenRouter on every tier, 30
+turns. `check` ran first: each bug failed its tests, each real fix
+passed the suite (1,494 to 2,111 tests).
+
+```
+TOKENS PER COMPLETED TASK: all tokens spent / runs that passed
+  usage-no-args        naive 5/5   127,298    optimized  5/5    30,829     75.8% fewer
+  echo-empty-bytes     naive 4/5    94,112    optimized  5/5    38,546     59.0% fewer
+  funcparam-message    naive 5/5    58,446    optimized  5/5    14,290     75.5% fewer
+  choice-brackets      naive 5/5    86,507    optimized  5/5    42,446     50.9% fewer
+  envvar-display       naive 5/5    93,721    optimized  5/5    95,887      2.3% MORE
+  argument-help-record naive 5/5    68,020    optimized  5/5    37,046     45.5% fewer
+  ALL                  naive 29/30   87,807   optimized 30/30    43,174     50.8% fewer
+COST PER COMPLETED TASK: gateway-priced dollars / runs that passed
+  ALL                  naive 29/30 $0.01095   optimized 30/30 $0.00324     70.4% cheaper
+```
+
+- The one failure: `echo-empty-bytes`, naive, repeat 4; the fix's test
+  failed (`tests/test_utils.py:448`).
+- 24 runs (repeats 4 and 5) first stopped at the dev key's gateway
+  limit of 2 million tokens an hour, before any model reply. They were
+  run again with `--resume` once the window reset.
+- Median turns 11 (naive) and 6.5 (levers on); median wall time 41 s
+  and 25 s. The 60 runs cost $0.42.
+- A first attempt of this run was stopped after 7 runs, all passing,
+  when Haiku's own words exposed the grep bug below; it was discarded
+  and the run started again on the fixed build.
+
+### Found by the click run, fixed
+
+- **grep used basic regex syntax.** `a|b` matched a literal `|` and
+  `\{` was an error, reported as "grep found nothing within 20 s". 397
+  of the 1,893 grep calls in the recorded traces used `|`. grep now
+  uses `-E`, and a pattern that is not a valid regex is searched as
+  plain text, with a note saying so.
+- **A multi-line `python -c` command** split the tool's activity line,
+  which the VS Code panel then showed as raw text.
+- **The last word of streamed text** came after an approval prompt in
+  the terminal, since it is held back until the word ends (so a line
+  can wrap between words).

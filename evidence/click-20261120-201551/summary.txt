@@ -1,0 +1,92 @@
+
+task             arm         ok   tokens  turns    secs
+------------------------------------------------------------
+usage-no-args    naive        Y    92837     11    45.8
+usage-no-args    optimized    Y    24075      5    21.5
+echo-empty-bytes naive        Y    63656     12    38.7
+echo-empty-bytes optimized    Y    22681      4    15.0
+funcparam-message naive        Y    29353      8    24.8
+funcparam-message optimized    Y    14798      5    12.7
+choice-brackets  naive        Y    63863     10    33.6
+choice-brackets  optimized    Y    43037      7    28.2
+envvar-display   naive        Y    65706     10    40.2
+envvar-display   optimized    Y    83263     13    42.3
+argument-help-record naive        Y    56449     11    39.0
+argument-help-record optimized    Y    36057      8    29.0
+usage-no-args    naive        Y   103295     13    47.8
+usage-no-args    optimized    Y    23549      5    20.3
+echo-empty-bytes naive        Y    91266     16    43.7
+echo-empty-bytes optimized    Y    22375      4    14.5
+funcparam-message naive        Y    63047     12    34.7
+funcparam-message optimized    Y    15402      5    13.8
+choice-brackets  naive        Y    59222      9    34.5
+choice-brackets  optimized    Y    29867      6    29.7
+envvar-display   naive        Y   100984     14    47.1
+envvar-display   optimized    Y   137272     18    57.8
+argument-help-record naive        Y    33472      8    29.0
+argument-help-record optimized    Y    42694      8    30.8
+usage-no-args    naive        Y   235770     21    86.4
+usage-no-args    optimized    Y    32410      6    22.5
+echo-empty-bytes naive        Y   116148     11    26.5
+echo-empty-bytes optimized    Y    53005      7    22.8
+funcparam-message naive        Y    26986      8    20.4
+funcparam-message optimized    Y    14819      5    12.4
+choice-brackets  naive        Y   141818     14    58.8
+choice-brackets  optimized    Y    50031      8    32.2
+envvar-display   naive        Y    76726      9    30.8
+envvar-display   optimized    Y   114262     16    52.8
+argument-help-record naive        Y    54383     11    43.6
+argument-help-record optimized    Y    27265      7    17.5
+usage-no-args    naive        Y   121196     14    62.6
+usage-no-args    optimized    Y    50273      9    27.4
+echo-empty-bytes naive        N    42990      9    30.1
+echo-empty-bytes optimized    Y    47282      6    18.6
+funcparam-message naive        Y    65079     15    41.4
+funcparam-message optimized    Y    14801      5    13.1
+choice-brackets  naive        Y    68071     10    35.9
+choice-brackets  optimized    Y    50426      8    33.7
+envvar-display   naive        Y   110058     11    49.9
+envvar-display   optimized    Y    71169     10    40.2
+argument-help-record naive        Y    80341     13    39.1
+argument-help-record optimized    Y    34472      8    26.7
+usage-no-args    naive        Y    83391     12    40.8
+usage-no-args    optimized    Y    23839      5    19.6
+echo-empty-bytes naive        Y    62388     12    46.9
+echo-empty-bytes optimized    Y    47389      6    18.7
+funcparam-message naive        Y   107764      9    31.8
+funcparam-message optimized    Y    11630      4    11.7
+choice-brackets  naive        Y    99562     11    62.2
+choice-brackets  optimized    Y    38871      6    27.1
+envvar-display   naive        Y   115133     12    45.8
+envvar-display   optimized    Y    73471     11    32.4
+argument-help-record naive        Y   115454     13    41.5
+argument-help-record optimized    Y    44742      9    29.0
+
+PER TASK: success rate, median tokens over PASSING runs
+------------------------------------------------------------------------
+  usage-no-args    naive 5/5 med=103295     optimized  5/5 med=24075       76.7% fewer tokens
+  echo-empty-bytes naive 4/5 med=77461      optimized  5/5 med=47282       39.0% fewer tokens
+  funcparam-message naive 5/5 med=63047      optimized  5/5 med=14801       76.5% fewer tokens
+  choice-brackets  naive 5/5 med=68071      optimized  5/5 med=43037       36.8% fewer tokens
+  envvar-display   naive 5/5 med=100984     optimized  5/5 med=83263       17.5% fewer tokens
+  argument-help-record naive 5/5 med=56449      optimized  5/5 med=36057       36.1% fewer tokens
+
+TOKENS PER COMPLETED TASK: all tokens spent / runs that passed
+------------------------------------------------------------------------
+  usage-no-args    naive 5/5   127,298    optimized  5/5    30,829     75.8% fewer
+  echo-empty-bytes naive 4/5    94,112    optimized  5/5    38,546     59.0% fewer
+  funcparam-message naive 5/5    58,446    optimized  5/5    14,290     75.5% fewer
+  choice-brackets  naive 5/5    86,507    optimized  5/5    42,446     50.9% fewer
+  envvar-display   naive 5/5    93,721    optimized  5/5    95,887      2.3% MORE
+  argument-help-record naive 5/5    68,020    optimized  5/5    37,046     45.5% fewer
+  ALL              naive 29/30    87,807  optimized  30/30    43,174   50.8% fewer
+
+COST PER COMPLETED TASK: gateway-priced dollars / runs that passed
+------------------------------------------------------------------------
+  usage-no-args    naive 5/5 $0.01648       optimized  5/5 $0.00221        86.6% cheaper
+  echo-empty-bytes naive 4/5 $0.01157       optimized  5/5 $0.00289        75.0% cheaper
+  funcparam-message naive 5/5 $0.00709       optimized  5/5 $0.00099        86.0% cheaper
+  choice-brackets  naive 5/5 $0.01097       optimized  5/5 $0.00357        67.4% cheaper
+  envvar-display   naive 5/5 $0.01151       optimized  5/5 $0.00721        37.4% cheaper
+  argument-help-record naive 5/5 $0.00820       optimized  5/5 $0.00255        68.9% cheaper
+  ALL              naive 29/30 $0.01095     optimized  30/30 $0.00324      70.4% cheaper

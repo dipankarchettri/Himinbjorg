@@ -60,6 +60,51 @@ per run, and whether from that change or from chance is not separated. This is a
 model, not comparable with full-benchmark leaderboard numbers. The per
 issue table is in `VERIFIED.md`.
 
+## A real project: pallets/click
+
+Six bugs the [click](https://github.com/pallets/click) maintainers fixed
+in 2026. Click is 12,800 lines of source and 16,500 of tests. Each run
+starts at the commit before the fix, with the bug report as the prompt.
+Afterwards the maintainers' tests from the fix commit are added and run,
+then the rest of click's suite (1,494 to 2,111 tests): a bug counts as
+solved only if both pass. Claude Haiku 5.5 through OpenRouter on every
+tier, 5 runs per bug per arm, 30-turn limit, 60 runs in all.
+
+| Bug (maintainers' fix) | Solved, naive vs levers on | Tokens per solved bug | Cost per solved bug |
+| --- | --- | --- | --- |
+| `write_usage` prints nothing without args (`0551bf5`) | 5/5 vs 5/5 | 127,298 → 30,829 (76% fewer) | $0.0165 → $0.0022 |
+| `echo(b"")` raises `TypeError` (`4d3db84`) | 4/5 vs 5/5 | 94,112 → 38,546 (59% fewer) | $0.0116 → $0.0029 |
+| `FuncParamType` hides the `ValueError` message (`fc6c7c4`) | 5/5 vs 5/5 | 58,446 → 14,290 (76% fewer) | $0.0071 → $0.0010 |
+| Double brackets for an optional `Choice` (`762c97e`) | 5/5 vs 5/5 | 86,507 → 42,446 (51% fewer) | $0.0110 → $0.0036 |
+| `show_envvar` with a list or empty `envvar` (`c53d373`) | 5/5 vs 5/5 | 93,721 → 95,887 (2% more) | $0.0115 → $0.0072 |
+| `Argument.get_help_record` returns `None` (`05f6fd0`) | 5/5 vs 5/5 | 68,020 → 37,046 (46% fewer) | $0.0082 → $0.0026 |
+| **All** | **29/30 vs 30/30** | **87,807 → 43,174 (51% fewer)** | **$0.0110 → $0.0032 (70% cheaper)** |
+
+The median run took 6.5 turns and 25 s with the levers on, against 11
+turns and 41 s without; the 60 runs cost $0.42 in all. Before any run,
+`realrepo_run.py check` confirmed that each bug fails its tests and that
+the maintainers' fix passes the whole suite.
+
+- **Prompts.** Three come from an issue, as the user wrote it; where the
+  report included a suggested patch, the patch was cut. Three come from
+  the fix's pull request, rewritten as a bug report, so they describe
+  the expected behaviour more fully than a user would. One prompt adds a
+  sentence for a case the hidden test checks (an empty `ValueError`
+  message). Every prompt is in `bench/realrepo_run.py`.
+- **Rate limit.** Repeats 4 and 5 first hit the dev gateway's limit of
+  2 million tokens an hour, so 24 runs stopped before any model reply.
+  They say nothing about the agent and were run again
+  (`--resume`); `results.json` records the count.
+- **The one regression.** On `envvar-display` the levers-on arm used 2%
+  more tokens per solved bug, though it cost 37% less: more of its
+  prompt was read from the provider's cache.
+- **Found on the way.** Working on click, Haiku said its first searches
+  had returned nothing. The grep tool ran in basic regex syntax, where
+  `a|b` is not alternation and `\{` is an error that was reported as a
+  timeout; about a fifth of recorded grep calls used `|`. It was fixed
+  before this run; the other results on this page were measured with
+  the bug.
+
 ## Against another agent: opencode
 
 opencode 2.3.2 on the same 7 tasks, through the same gateway to the same
@@ -150,6 +195,16 @@ python3 -m venv .venv-swebench && .venv-swebench/bin/pip install swebench==5.0.2
 .venv-swebench/bin/python bench/swebench_run.py select --n 20     # writes the issue texts; the subset is committed
 .venv/bin/python bench/swebench_run.py run --arms naive,optimized --repeats 3
 .venv-swebench/bin/python bench/swebench_run.py grade evidence/swebench-<stamp>
+```
+
+The click run clones click into `bench/.realrepo` and needs only
+pytest, which it installs there:
+
+```sh
+python bench/realrepo_run.py check        # each bug fails its tests; each real fix passes the suite
+M=openrouter/anthropic/claude-haiku-5.5
+BENCH_MODEL_CHEAP=$M BENCH_MODEL_CAPABLE=$M AGENT_MODEL_LOCAL_CODE=$M AGENT_MODEL_LOCAL_SMALL=$M \
+    python bench/realrepo_run.py run --arms naive,optimized --repeats 5
 ```
 
 opencode, pointed at the gateway by an `opencode.json` in its own
