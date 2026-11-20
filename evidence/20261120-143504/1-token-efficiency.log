@@ -1,0 +1,238 @@
+  running zero_check       [naive#1] ...
+    -> ok=False tokens=3907 turns=3 12.9s 
+  running zero_check       [naive#2] ...
+    -> ok=True tokens=7117 turns=5 16.3s 
+  running zero_check       [naive#3] ...
+    -> ok=True tokens=7115 turns=5 21.1s 
+  running zero_check       [naive#4] ...
+    -> ok=True tokens=10995 turns=7 29.5s 
+  running zero_check       [naive#5] ...
+    -> ok=True tokens=5646 turns=4 16.5s 
+  running zero_check       [optimized#1] ...
+    -> ok=True tokens=5765 turns=4 8.1s 
+  running zero_check       [optimized#2] ...
+    -> ok=True tokens=5800 turns=4 7.8s 
+  running zero_check       [optimized#3] ...
+    -> ok=True tokens=5820 turns=4 8.1s 
+  running zero_check       [optimized#4] ...
+    -> ok=True tokens=5945 turns=4 12.4s 
+  running zero_check       [optimized#5] ...
+    -> ok=True tokens=5918 turns=4 12.1s 
+  running add_power        [naive#1] ...
+    -> ok=True tokens=4683 turns=4 13.8s 
+  running add_power        [naive#2] ...
+    -> ok=True tokens=8845 turns=6 21.9s 
+  running add_power        [naive#3] ...
+    -> ok=False tokens=3242 turns=3 12.3s 
+  running add_power        [naive#4] ...
+    -> ok=True tokens=3341 turns=3 11.8s 
+  running add_power        [naive#5] ...
+    -> ok=False tokens=3257 turns=3 12.4s 
+  running add_power        [optimized#1] ...
+    -> ok=True tokens=3566 turns=3 9.1s 
+  running add_power        [optimized#2] ...
+    -> ok=True tokens=3721 turns=3 7.4s 
+  running add_power        [optimized#3] ...
+    -> ok=True tokens=3573 turns=3 5.9s 
+  running add_power        [optimized#4] ...
+    -> ok=True tokens=16721 turns=9 30.9s 
+  running add_power        [optimized#5] ...
+    -> ok=True tokens=3559 turns=3 9.0s 
+  running rename_symbol    [naive#1] ...
+    -> ok=True tokens=9865 turns=6 21.5s 
+  running rename_symbol    [naive#2] ...
+    -> ok=True tokens=5743 turns=4 20.8s 
+  running rename_symbol    [naive#3] ...
+    -> ok=True tokens=5889 turns=4 17.4s 
+  running rename_symbol    [naive#4] ...
+    -> ok=True tokens=14373 turns=7 36.2s 
+  running rename_symbol    [naive#5] ...
+    -> ok=True tokens=5771 turns=4 21.8s 
+  running rename_symbol    [optimized#1] ...
+    -> ok=True tokens=8307 turns=6 14.0s 
+  running rename_symbol    [optimized#2] ...
+    -> ok=True tokens=13344 turns=6 31.6s 
+  running rename_symbol    [optimized#3] ...
+    -> ok=True tokens=8271 turns=6 16.0s 
+  running rename_symbol    [optimized#4] ...
+    -> ok=True tokens=9812 turns=6 21.7s 
+  running rename_symbol    [optimized#5] ...
+    -> ok=True tokens=8954 turns=5 17.3s 
+  running docstring        [naive#1] ...
+    -> ok=False tokens=3273 turns=3 7.5s 
+  running docstring        [naive#2] ...
+    -> ok=False tokens=3232 turns=3 11.9s 
+  running docstring        [naive#3] ...
+    -> ok=False tokens=3250 turns=3 12.3s 
+  running docstring        [naive#4] ...
+    -> ok=False tokens=3244 turns=3 12.2s 
+  running docstring        [naive#5] ...
+    -> ok=False tokens=3250 turns=3 12.2s 
+  running docstring        [optimized#1] ...
+    -> ok=True tokens=3633 turns=3 7.2s 
+  running docstring        [optimized#2] ...
+    -> ok=True tokens=3673 turns=3 7.6s 
+  running docstring        [optimized#3] ...
+    -> ok=True tokens=3618 turns=3 6.4s 
+  running docstring        [optimized#4] ...
+    -> ok=True tokens=3684 turns=3 11.2s 
+  running docstring        [optimized#5] ...
+    -> ok=True tokens=4994 turns=4 12.5s 
+  running shop_bulk_bug    [naive#1] ...
+    -> ok=False tokens=47551 turns=7 58.8s 
+  running shop_bulk_bug    [naive#2] ...
+    -> ok=False tokens=14273 turns=3 35.1s 
+  running shop_bulk_bug    [naive#3] ...
+    -> ok=False tokens=14166 turns=3 32.4s 
+  running shop_bulk_bug    [naive#4] ...
+    -> ok=False tokens=27552 turns=5 52.3s 
+  running shop_bulk_bug    [naive#5] ...
+    -> ok=False tokens=21902 turns=4 29.5s 
+  running shop_bulk_bug    [optimized#1] ...
+    -> ok=True tokens=41388 turns=13 40.9s 
+  running shop_bulk_bug    [optimized#2] ...
+    -> ok=True tokens=34851 turns=9 55.4s 
+  running shop_bulk_bug    [optimized#3] ...
+    -> ok=True tokens=26246 turns=5 21.8s 
+  running shop_bulk_bug    [optimized#4] ...
+    -> ok=True tokens=29307 turns=8 55.5s 
+  running shop_bulk_bug    [optimized#5] ...
+    -> ok=True tokens=20589 turns=4 15.9s 
+  running shop_rename      [naive#1] ...
+    -> ok=False tokens=169180 turns=12 707.0s 
+  running shop_rename      [naive#2] ...
+    -> ok=False tokens=6877 turns=3 29.7s 
+  running shop_rename      [naive#3] ...
+    -> ok=False tokens=24704 turns=7 188.0s 
+  running shop_rename      [naive#4] ...
+    -> ok=False tokens=115199 turns=16 116.7s 
+  running shop_rename      [naive#5] ...
+    -> ok=False tokens=171875 turns=8 578.1s 
+  running shop_rename      [optimized#1] ...
+    -> ok=True tokens=19252 turns=9 29.9s 
+  running shop_rename      [optimized#2] ...
+    -> ok=False tokens=58844 turns=15 42.6s 
+  running shop_rename      [optimized#3] ...
+    -> ok=True tokens=6659 turns=4 7.7s 
+  running shop_rename      [optimized#4] ...
+    -> ok=True tokens=6657 turns=4 7.0s 
+  running shop_rename      [optimized#5] ...
+    -> ok=False tokens=34840 turns=7 45.1s 
+  running shop_freeship    [naive#1] ...
+    -> ok=False tokens=22549 turns=5 61.0s 
+  running shop_freeship    [naive#2] ...
+    -> ok=False tokens=4761 turns=3 23.0s 
+  running shop_freeship    [naive#3] ...
+    -> ok=False tokens=24107 turns=4 181.9s 
+  running shop_freeship    [naive#4] ...
+    -> ok=False tokens=7401 turns=4 45.8s 
+  running shop_freeship    [naive#5] ...
+    -> ok=False tokens=8727 turns=4 53.0s 
+  running shop_freeship    [optimized#1] ...
+    -> ok=False tokens=22110 turns=8 80.1s 
+  running shop_freeship    [optimized#2] ...
+    -> ok=False tokens=16113 turns=8 38.1s 
+  running shop_freeship    [optimized#3] ...
+    -> ok=False tokens=7954 turns=4 34.8s 
+  running shop_freeship    [optimized#4] ...
+    -> ok=False tokens=11332 turns=5 49.6s 
+  running shop_freeship    [optimized#5] ...
+    -> ok=False tokens=19955 turns=4 24.3s 
+
+task             arm         ok   tokens  turns    secs
+------------------------------------------------------------
+zero_check       naive        N     3907      3    12.9
+zero_check       naive        Y     7117      5    16.3
+zero_check       naive        Y     7115      5    21.1
+zero_check       naive        Y    10995      7    29.5
+zero_check       naive        Y     5646      4    16.5
+zero_check       optimized    Y     5765      4     8.1
+zero_check       optimized    Y     5800      4     7.8
+zero_check       optimized    Y     5820      4     8.1
+zero_check       optimized    Y     5945      4    12.4
+zero_check       optimized    Y     5918      4    12.1
+add_power        naive        Y     4683      4    13.8
+add_power        naive        Y     8845      6    21.9
+add_power        naive        N     3242      3    12.3
+add_power        naive        Y     3341      3    11.8
+add_power        naive        N     3257      3    12.4
+add_power        optimized    Y     3566      3     9.1
+add_power        optimized    Y     3721      3     7.4
+add_power        optimized    Y     3573      3     5.9
+add_power        optimized    Y    16721      9    30.9
+add_power        optimized    Y     3559      3     9.0
+rename_symbol    naive        Y     9865      6    21.5
+rename_symbol    naive        Y     5743      4    20.8
+rename_symbol    naive        Y     5889      4    17.4
+rename_symbol    naive        Y    14373      7    36.2
+rename_symbol    naive        Y     5771      4    21.8
+rename_symbol    optimized    Y     8307      6    14.0
+rename_symbol    optimized    Y    13344      6    31.6
+rename_symbol    optimized    Y     8271      6    16.0
+rename_symbol    optimized    Y     9812      6    21.7
+rename_symbol    optimized    Y     8954      5    17.3
+docstring        naive        N     3273      3     7.5
+docstring        naive        N     3232      3    11.9
+docstring        naive        N     3250      3    12.3
+docstring        naive        N     3244      3    12.2
+docstring        naive        N     3250      3    12.2
+docstring        optimized    Y     3633      3     7.2
+docstring        optimized    Y     3673      3     7.6
+docstring        optimized    Y     3618      3     6.4
+docstring        optimized    Y     3684      3    11.2
+docstring        optimized    Y     4994      4    12.5
+shop_bulk_bug    naive        N    47551      7    58.8
+shop_bulk_bug    naive        N    14273      3    35.1
+shop_bulk_bug    naive        N    14166      3    32.4
+shop_bulk_bug    naive        N    27552      5    52.3
+shop_bulk_bug    naive        N    21902      4    29.5
+shop_bulk_bug    optimized    Y    41388     13    40.9
+shop_bulk_bug    optimized    Y    34851      9    55.4
+shop_bulk_bug    optimized    Y    26246      5    21.8
+shop_bulk_bug    optimized    Y    29307      8    55.5
+shop_bulk_bug    optimized    Y    20589      4    15.9
+shop_rename      naive        N   169180     12   707.0
+shop_rename      naive        N     6877      3    29.7
+shop_rename      naive        N    24704      7   188.0
+shop_rename      naive        N   115199     16   116.7
+shop_rename      naive        N   171875      8   578.1
+shop_rename      optimized    Y    19252      9    29.9
+shop_rename      optimized    N    58844     15    42.6
+shop_rename      optimized    Y     6659      4     7.7
+shop_rename      optimized    Y     6657      4     7.0
+shop_rename      optimized    N    34840      7    45.1
+shop_freeship    naive        N    22549      5    61.0
+shop_freeship    naive        N     4761      3    23.0
+shop_freeship    naive        N    24107      4   181.9
+shop_freeship    naive        N     7401      4    45.8
+shop_freeship    naive        N     8727      4    53.0
+shop_freeship    optimized    N    22110      8    80.1
+shop_freeship    optimized    N    16113      8    38.1
+shop_freeship    optimized    N     7954      4    34.8
+shop_freeship    optimized    N    11332      5    49.6
+shop_freeship    optimized    N    19955      4    24.3
+
+PER TASK: success rate, median tokens over PASSING runs
+------------------------------------------------------------------------
+  zero_check       naive 4/5 med=7116       optimized  5/5 med=5820        18.2% fewer tokens
+  add_power        naive 3/5 med=4683       optimized  5/5 med=3573        23.7% fewer tokens
+  rename_symbol    naive 5/5 med=5889       optimized  5/5 med=8954        52.0% MORE tokens
+  docstring        naive 0/5 med=n/a        optimized  5/5 med=3673       not comparable (an arm never passed)
+  shop_bulk_bug    naive 0/5 med=n/a        optimized  5/5 med=29307      not comparable (an arm never passed)
+  shop_rename      naive 0/5 med=n/a        optimized  3/5 med=6659       not comparable (an arm never passed)
+  shop_freeship    naive 0/5 med=n/a        optimized  0/5 med=n/a        not comparable (an arm never passed)
+
+TOKENS PER COMPLETED TASK: all tokens spent / runs that passed
+------------------------------------------------------------------------
+  zero_check       naive 4/5     8,695    optimized  5/5     5,850     32.7% fewer
+  add_power        naive 3/5     7,789    optimized  5/5     6,228     20.0% fewer
+  rename_symbol    naive 5/5     8,328    optimized  5/5     9,738     16.9% MORE
+  docstring        naive 0/5       n/a    optimized  5/5     3,920    n/a (an arm never passed)
+  shop_bulk_bug    naive 0/5       n/a    optimized  5/5    30,476    n/a (an arm never passed)
+  shop_rename      naive 0/5       n/a    optimized  3/5    42,084    n/a (an arm never passed)
+  shop_freeship    naive 0/5       n/a    optimized  0/5       n/a    n/a (an arm never passed)
+  ALL              naive 12/35    66,405  optimized  28/35    17,313   73.9% fewer
+
+  evidence: /home/sietllm/Desktop/projxdip/bifrost/evidence/scenario1-benchmark-20261120-143517.json
+
+[stderr]

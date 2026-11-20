@@ -1,0 +1,64 @@
+{
+  "scenario": "gateway_cache_identical_rerun",
+  "task": "add_power",
+  "cache_scope": "cachedemo-20261120-153112-5eb8e6",
+  "match": "direct (exact hash) only",
+  "note": "Bifrost reports original usage on a hit; hit tokens are counted as served from cache, not provider-processed.",
+  "runs": [
+    {
+      "task": "add_power",
+      "arm": "optimized",
+      "success": true,
+      "turns": 3,
+      "llm_calls": 3,
+      "prompt_tokens": 3458,
+      "completion_tokens": 101,
+      "total_tokens": 3559,
+      "cache_hits": 0,
+      "cached_tokens": 0,
+      "provider_tokens": 3559,
+      "tool_calls": 2,
+      "approvals": 1,
+      "wall_seconds": 10.7,
+      "cost_usd": 0.0,
+      "cost_logs": "3/3",
+      "prompt_cache_read": 0,
+      "prompt_cache_write": 0,
+      "tiers": {
+        "T1_CHEAP": 3
+      },
+      "suppressed_rereads": 0,
+      "elided_tokens": 100,
+      "error": "",
+      "stop": ""
+    },
+    {
+      "task": "add_power",
+      "arm": "optimized",
+      "success": true,
+      "turns": 3,
+      "llm_calls": 3,
+      "prompt_tokens": 3458,
+      "completion_tokens": 101,
+      "total_tokens": 3559,
+      "cache_hits": 3,
+      "cached_tokens": 3559,
+      "provider_tokens": 0,
+      "tool_calls": 2,
+      "approvals": 1,
+      "wall_seconds": 5.1,
+      "cost_usd": 0.0,
+      "cost_logs": "3/3",
+      "prompt_cache_read": 0,
+      "prompt_cache_write": 0,
+      "tiers": {
+        "T1_CHEAP": 3
+      },
+      "suppressed_rereads": 0,
+      "elided_tokens": 100,
+      "error": "",
+      "stop": ""
+    }
+  ],
+  "passed": true
+}

@@ -1,0 +1,52 @@
+{
+  "scenario": "budget_402_before_provider",
+  "virtual_key": "sk-bf-budget-demo-key",
+  "synthetic_pricing": true,
+  "model": "ollama/qwen2.5:7b-instruct",
+  "limit_usd": 0.05,
+  "blocked_at_call": 7,
+  "calls": [
+    {
+      "n": 1,
+      "status": 200,
+      "used": 0.0,
+      "request_id": "3fc09661-ed61-4cd3-9810-f4fd14c45b2b"
+    },
+    {
+      "n": 2,
+      "status": 200,
+      "used": 0.0,
+      "request_id": "450d596f-3513-4d3e-8b53-c5c7fca05647"
+    },
+    {
+      "n": 3,
+      "status": 200,
+      "used": 0.0,
+      "request_id": "ae0fc712-b00c-4575-8d91-e210909c2cc0"
+    },
+    {
+      "n": 4,
+      "status": 200,
+      "used": 0.0,
+      "request_id": "4daf40a9-dd04-4488-95bc-ca39478d7956"
+    },
+    {
+      "n": 5,
+      "status": 200,
+      "used": 0.0,
+      "request_id": "47f707d0-575c-4779-9fea-88628b43193d"
+    },
+    {
+      "n": 6,
+      "status": 200,
+      "used": 0.0,
+      "request_id": "2de34e7d-8ed1-4c4f-b5fe-4e4afe6d2beb"
+    },
+    {
+      "n": 7,
+      "status": 402,
+      "used": 0.0,
+      "request_id": "5807987d-be87-4696-b5cf-ed8f9d7ef90e"
+    }
+  ]
+}

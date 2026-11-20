@@ -288,6 +288,14 @@ shop_freeship        0/10      0/10              -           -       -
 ALL                 31/70     57/70         88,196      13,913      84%
 ```
 
+A fresh `make proof` on the final build (2026-11-20,
+`evidence/20261120-143504/`) passed every scenario. Its scenario 1, 5
+repeats per cell on the same model: 28/35 passed against 12/35, 17,313
+tokens per completed task against 66,405 (74% fewer). One task went the
+other way: rename_symbol passed 5/5 in both arms and cost 17% more with
+the levers on (9,738 against 8,328). The cache re-run went from 3,559
+provider tokens to 0.
+
 Wall time per run on the shop tasks: 195 s naive, 32 s optimized. An
 identical re-run of `add_power` went from 4,402 provider tokens to 0, every
 call served from the gateway cache by exact hash.

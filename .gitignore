@@ -15,6 +15,7 @@ __pycache__/
 traces/
 evidence/*
 !evidence/20261115-050124/
+!evidence/20261120-143504/
 !evidence/scenario1-benchmark-20261115-003350.json
 !evidence/scenario1-benchmark-20261115-015810.json
 !evidence/scenario1-benchmark-20261115-024233.json
