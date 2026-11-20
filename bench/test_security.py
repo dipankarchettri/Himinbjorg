@@ -293,6 +293,24 @@ def test_grep_searches_an_invalid_regex_as_plain_text(tmp_path):
     assert "within" not in out
 
 
+def test_git_read_shows_changes_and_cannot_commit(tmp_path):
+    import subprocess
+    from agent.tools import git as git_mod
+    run = lambda *a: subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
+    run("init", "-q")
+    (tmp_path / "a.py").write_text("x = 1\n")
+    run("add", "a.py")
+    run("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init")
+    (tmp_path / "a.py").write_text("x = 2\n")
+    (tmp_path / "b.py").write_text("y = 1\n")
+    assert "M a.py" in git_mod.git_read("status", tmp_path)
+    assert "+x = 2" in git_mod.git_read("diff", tmp_path)
+    run("add", "b.py")
+    assert "+y = 1" in git_mod.git_read("diff_staged", tmp_path)
+    assert git_mod.git_read("commit", tmp_path).startswith("ERROR")
+    assert git_mod.git_read("add", tmp_path).startswith("ERROR")
+
+
 # Fake credentials are assembled at runtime so no key-shaped string is
 # committed (secret scanners would flag it, and rightly).
 _FAKE_KEYS = {

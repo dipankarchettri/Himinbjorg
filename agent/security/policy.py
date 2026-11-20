@@ -154,6 +154,11 @@ def validate_args(spec: ToolSpec, args: dict, repo_root: Path) -> dict:
             raise InvalidArgs(f"refusing to touch a credentials file: {rel}")
         if spec.mutating and (rel == ".git" or rel.startswith(".git/")):
             raise InvalidArgs("direct writes into .git are refused; use the git tool")
+        if rel == ".git" or rel.startswith(".git/"):
+            # Found in use: with no git tool offered, a model read
+            # .git/index (binary) again and again for 139k tokens.
+            raise InvalidArgs("git's own files are not readable here; for status, diff "
+                              "and log use the git_read tool")
         out["path"] = str(resolved)
         out["_rel"] = rel
 

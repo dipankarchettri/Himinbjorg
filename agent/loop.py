@@ -100,6 +100,13 @@ RENAME_HINT = re.compile(r"\brenam(e|es|ed|ing)\b", re.I)
 
 GIT_HINT = re.compile(r"\b(git|commit|branch|stage|staged|diff)\b", re.I)
 
+# A question about the working tree, answered with read-only git. Found in
+# use: "Review my uncommitted changes" got no git tool at all, and the model
+# read .git/index byte by byte for 139k tokens.
+CHANGES_HINT = re.compile(
+    r"\b(git|commit|commits|committed|uncommitted|branch|stage|staged|unstaged|diff|"
+    r"changes|changed|modified|status|history|log|review|working tree)\b", re.I)
+
 MUTATING_HINT = re.compile(
     r"\b(fix|add|write|create|edit|change|update|modify|refactor|rename|"
     r"implement|remove|delete|patch|commit|install|run|test)\b", re.I)
@@ -196,6 +203,8 @@ class Agent:
     MAX_CALLS_PER_TURN = 8  # tool calls executed from a single completion
     PAGING_HINT = 5         # reads of one file in a task before suggesting grep
     MAX_NUDGES = 2          # pushes back on text-only replies that are not an answer
+    ANSWER_BY = 8           # turns of reading before a question is asked for its answer
+    ANSWER_NOW = 12         # ...and before it gets one last call, with tools off, to answer
     MAX_DENIALS = 2         # operator denials in one task before control returns to them
     # Sticky failover lasts this long, then the primary is tried again.
     # Measured on a Gemini free tier: a 429 carried retry_after 34 s, and a
@@ -237,6 +246,7 @@ class Agent:
         self._failed_edits = 0
         self._edits_preapproved = False   # set by the operator answering "a"
         self._git_allowed = True
+        self._git_read_allowed = True
         self._rename_allowed = True
         self._turn_base = 0
         self._last_turn = 0
@@ -248,6 +258,9 @@ class Agent:
         self._edited_this_task = False
         self._nudges = 0
         self._nudged_no_edit = False
+        self._nudged_empty = False
+        self._out_scale = 1         # doubles when a reply hit max_tokens before any answer
+        self._skip_cache = False    # once, for a retry the cache would answer with the same reply
         self._denials = 0
         self._manifest_text = ""
 
@@ -382,6 +395,9 @@ class Agent:
 
         mutating = is_mutating(task)
         self._git_allowed = bool(GIT_HINT.search(task))
+        # Not beside git_op, which does the same reads and more.
+        self._git_read_allowed = (bool(CHANGES_HINT.search(task))
+                                  and not (mutating and self._git_allowed))
         self._rename_allowed = bool(RENAME_HINT.search(task))
         decision = router_mod.route(
             task, confidential=self.settings.confidential,
@@ -398,15 +414,24 @@ class Agent:
         self._edited_this_task = False
         self._nudges = 0
         self._nudged_no_edit = False
+        self._nudged_empty = False
+        self._out_scale = 1
+        self._skip_cache = False
         self._denials = 0
         rate_limited = 0
+        same_turn = False
 
-        self._last_turn = base
+        self._last_turn = turn = base
         for step in range(1, max_turns + 1):
             self._checkpoint()          # the turns so far, before the next call
-            turn = base + step
+            if not same_turn:
+                # A retry of the same request keeps its turn number: a new
+                # one would move older tool output past the pruning horizon
+                # before the model had used it.
+                turn += 1
+                self.stats.turns += 1
+            same_turn = False
             self._last_turn = turn
-            self.stats.turns += 1
             try:
                 result, decision = self._call(decision, turn, mutating)
             except llm_mod.BudgetExceeded:
@@ -470,8 +495,32 @@ class Agent:
             rate_limited = 0
             self._announce_provider(result)
 
+            self._skip_cache = False
+            if not result.tool_calls and not result.text.strip():
+                # Reasoning models count their reasoning against max_tokens.
+                # Measured (DeepSeek V4.1 Flash reviewing a repository): the
+                # whole limit went on reasoning and the reply was empty,
+                # shown as "(no output)". Retry with room to answer, past
+                # the cache, which would replay the empty reply.
+                if result.finish_reason == "length" and self._out_scale < 4:
+                    self._out_scale *= 2
+                    self._skip_cache = same_turn = True
+                    trace.emit("empty_reply", {"finish_reason": "length",
+                                               "retry_max_tokens_scale": self._out_scale})
+                    continue
+                if not self._nudged_empty:
+                    self._nudged_empty = True
+                    self.ledger.append(LedgerEntry(
+                        turn, "user", "Your reply was empty. Answer the task now, in text, "
+                                      "from what you have found so far."))
+                    continue
+
             if not result.tool_calls:
-                answer = result.text.strip() or "(no output)"
+                answer = result.text.strip() or (
+                    "The model returned no answer"
+                    + (", having used its whole output limit"
+                       if result.finish_reason == "length" else "")
+                    + ". Ask again, or try another model.")
                 self.ledger.append(LedgerEntry(turn, "assistant", answer))
                 nudge = None
                 # Not for a question: "in one sentence, what did you change?"
@@ -522,6 +571,20 @@ class Agent:
             if self._denials >= self.MAX_DENIALS:
                 return (f"stopped: you declined {self._denials} actions, so I have stopped. "
                         "Tell me how you would like to proceed.")
+
+            # A question or a review has no edit to finish it, and a model
+            # can keep reading until the turn limit. Found reviewing a
+            # 16-line diff of click with DeepSeek V4.1 Flash: 25 turns and
+            # 255k tokens, utils.py read seven times, stopped by the limit.
+            # Asking was not enough for that model (42 tool calls after the
+            # ask), so four turns later the answer is taken with tools off.
+            if self.settings.levers.loop_limits and not mutating and step == self.ANSWER_BY:
+                self.ledger.append(LedgerEntry(
+                    turn, "user", "You have read enough to answer. Answer now from what you "
+                                  "have found; read more only if something essential is "
+                                  "missing, and say what it is."))
+            if self.settings.levers.loop_limits and not mutating and step == self.ANSWER_NOW:
+                return self._answer_now(decision)
 
             no_progress = 0 if progressed else no_progress + 1
             stuck = None
@@ -641,6 +704,32 @@ task in this reply."""
         self.answer_streamed = False        # the stop line is not in the streamed text
         return f"{stopped}\n\n{summary}" if summary else stopped
 
+    def _answer_now(self, decision) -> str:
+        """One call with tools off for the answer to a question that has
+        been read around long enough."""
+        turn = self._last_turn + 1
+        self._last_turn = turn
+        self.ledger.append(LedgerEntry(
+            turn, "user", "Stop reading. Answer the task now, completely, from what you have "
+                          "found. Say what you could not check."))
+        text = ""
+        for _ in range(3):              # room to answer, as for an empty reply
+            try:
+                result, _ = self._call(decision, turn, False, tools_off=True)
+            except llm_mod.GatewayError as exc:
+                trace.emit("error", {"kind": type(exc).__name__, "detail": str(exc)[:400],
+                                     "during": "answer_now"})
+                break
+            text = (result.text or "").strip()
+            if text or result.finish_reason != "length":
+                break
+            self._out_scale *= 2
+            self._skip_cache = True
+        answer = text or "The model kept reading and gave no answer. Ask a narrower question."
+        self.ledger.append(LedgerEntry(turn, "assistant", answer))
+        self.answer_streamed = False
+        return answer
+
     # --------------------------------------------------------------- call
 
     def _call(self, decision, turn: int, mutating: bool, tools_off: bool = False):
@@ -686,18 +775,19 @@ task in this reply."""
             fallbacks=fallbacks,
             tools=self.registry.schemas(mutating_allowed=mutating,
                                         git_allowed=self._git_allowed,
-                                        rename_allowed=self._rename_allowed),
+                                        rename_allowed=self._rename_allowed,
+                                        git_read_allowed=self._git_read_allowed),
             # Direct-hash caching of the whole request. Safe by construction:
             # the key covers every message, tool result and file content the
             # model saw, so a hit replays a decision made on identical
             # information. A replayed tool call still passes the approval
             # gate; the cache returns a decision, never an approval.
             cache_key=(f"{self.settings.cache_scope}:conv"
-                       if self.settings.cache_scope else None),
+                       if self.settings.cache_scope and not self._skip_cache else None),
             # Diff writes keep output small. Without them every edit is a
             # whole file, and a 297-line file needs ~3,000 output tokens: a
             # 1,200 cap would make the baseline unable to edit at all.
-            max_tokens=1200 if self.settings.levers.diff_writes else 4096,
+            max_tokens=(1200 if self.settings.levers.diff_writes else 4096) * self._out_scale,
             temperature=self.settings.temperature,
             on_text=None if tools_off else self.on_text,
             # Tools stay declared: a history with tool calls and no tool
@@ -990,8 +1080,26 @@ task in this reply."""
         # early and pass the rest off as trusted text.
         content = _WRAPPER_TAG.sub("\u2039\\1untrusted-tool-output", content)
         wrapped = f"<untrusted-tool-output>\n{content}\n</untrusted-tool-output>"
+        name = call["function"]["name"]
+        # The diff is what a review is about. Pruned after a few turns of
+        # reading around it, the model asked for it again and again (found
+        # reviewing click with DeepSeek: five diffs, 214k tokens). The newest
+        # diff stays; an older one of the same kind is superseded.
+        pin = False
+        if name in ("git_read", "git_op") and content.startswith("exit=0"):
+            try:
+                op = json.loads(call["function"].get("arguments") or "{}").get("operation")
+            except (TypeError, ValueError):
+                op = None
+            if op in ("diff", "diff_staged"):
+                pin = True
+                key = f"{name}:{op}"
+                for e in self.ledger.entries:
+                    if e.pinned and e.summary and e.summary.startswith(key + " "):
+                        e.pinned, e.superseded = False, True
         self.ledger.append(LedgerEntry(
-            turn, "tool", wrapped, kind="tool_result",
-            tool_call_id=call["id"], name=call["function"]["name"],
-            summary=f"{call['function']['name']} -> {content.splitlines()[0][:70] if content else ''}"))
+            turn, "tool", wrapped, kind="tool_result", tool_call_id=call["id"], name=name,
+            pinned=pin,
+            summary=(f"{name}:{op} -> diff" if pin else
+                     f"{name} -> {content.splitlines()[0][:70] if content else ''}")))
         return progressed

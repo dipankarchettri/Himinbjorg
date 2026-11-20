@@ -36,9 +36,9 @@ class FakeClient:
 
     def call(self, spec):
         self.specs.append(spec)
-        tool_calls, text = (self.turns.pop(0) if self.turns else ([], "done"))
+        tool_calls, text, *finish = (self.turns.pop(0) if self.turns else ([], "done"))
         return llm_mod.CallResult(
-            text=text, tool_calls=tool_calls,
+            text=text, tool_calls=tool_calls, finish_reason=finish[0] if finish else "",
             usage=telemetry.Usage(100, 10, 110), routing=telemetry.RoutingInfo("ollama", "m"),
             cache=telemetry.CacheInfo(), request_id="r", latency_s=0.0)
 
@@ -853,3 +853,121 @@ def test_the_activity_line_stays_on_one_line_for_a_multiline_command():
     assert "\n" not in line
     assert line.startswith("  . run_command python -c import click @click.command()")
     assert line.endswith("[ok]")
+
+
+def _tool_names(spec) -> set[str]:
+    return {t["function"]["name"] for t in spec.tools}
+
+
+def test_a_review_of_uncommitted_changes_gets_read_only_git(repo):
+    # Found in use: the panel's own "Review my uncommitted changes" had no
+    # git tool, and the model read .git/index for 139k tokens.
+    agent, client = make_agent(repo, [([], "Nothing is uncommitted.")])
+    agent.run("Review my uncommitted changes")
+    names = _tool_names(client.specs[0])
+    assert "git_read" in names
+    assert "git_op" not in names and "run_command" not in names
+
+
+def test_git_read_is_not_offered_beside_git_op_or_for_unrelated_work(repo):
+    agent, client = make_agent(repo, [([], "ok"), ([], "ok")])
+    agent.run("commit the fix with a short message")
+    assert "git_op" in _tool_names(client.specs[0]) and "git_read" not in _tool_names(client.specs[0])
+    agent.run("what does divide() return?")
+    assert "git_read" not in _tool_names(client.specs[-1])
+
+
+def test_reading_inside_dot_git_is_refused(repo):
+    agent, client = make_agent(repo, [([call("read_file", path=".git/index")], ""),
+                                      ([], "done")])
+    agent.run("what does the index hold?")
+    sent = [m["content"] for m in client.specs[-1].messages if m["role"] == "tool"]
+    assert "use the git_read tool" in sent[0]
+
+
+def test_an_answer_lost_to_the_output_limit_is_asked_for_again(repo):
+    # A reasoning model counts its reasoning against max_tokens; measured
+    # with DeepSeek V4.1 Flash: the whole limit went on reasoning and the
+    # reply was empty, shown as "(no output)".
+    import dataclasses
+    agent, client = make_agent(repo, [([], "", "length"), ([], "Nothing is uncommitted.")])
+    agent.settings = dataclasses.replace(agent.settings, cache_scope="s")
+    assert agent.run("is there any uncommitted work here?") == "Nothing is uncommitted."
+    assert client.specs[1].max_tokens == 2 * client.specs[0].max_tokens
+    assert client.specs[0].cache_key and client.specs[1].cache_key is None   # not the cached empty reply
+
+
+def test_an_empty_reply_is_nudged_once_then_said_plainly(repo):
+    agent, _ = make_agent(repo, [([], ""), ([], "")])
+    answer = agent.run("explain calc.py")
+    assert answer.startswith("The model returned no answer") and "(no output)" not in answer
+
+
+def test_a_retry_for_room_to_answer_keeps_the_turn_and_resets_per_task(repo):
+    # A new turn number would move the tool output the model was about to
+    # use past the pruning horizon; found reviewing click with DeepSeek,
+    # which then asked for the same diff four times.
+    agent, client = make_agent(repo, [([call("read_file", path="calc.py")], ""),
+                                      ([], "", "length"), ([], "calc.py adds."),
+                                      ([], "second answer")])
+    agent.run("explain calc.py")
+    assert agent.stats.turns == 2
+    agent.run("and divide?")
+    assert client.specs[-1].max_tokens == client.specs[0].max_tokens   # back to normal
+
+
+def _fake_diffs(monkeypatch, *outputs):
+    from agent.tools import git as git_mod
+    it = iter(outputs)
+    monkeypatch.setattr(git_mod, "git_op", lambda *a, **k: next(it))
+
+
+def test_a_review_keeps_its_diff_through_pruning(repo, monkeypatch):
+    # Pruned after a few turns of reading around it, the diff was asked for
+    # five times in one review (click, DeepSeek V4.1 Flash, 214k tokens).
+    _fake_diffs(monkeypatch, "exit=0\n+the change")
+    reads = [([call("grep", pattern=f"x{i}")], "") for i in range(7)]
+    agent, client = make_agent(repo, [([call("git_read", operation="diff")], ""), *reads,
+                                      ([], "Reviewed.")])
+    agent.run("Review my uncommitted changes")
+    last = [m["content"] for m in client.specs[-1].messages if m["role"] == "tool"]
+    assert "+the change" in last[0]                                  # turn 1, still whole
+    assert any(m.startswith("[elided") for m in last[1:])            # pruning did run
+
+
+def test_a_newer_diff_supersedes_the_older_one(repo, monkeypatch):
+    _fake_diffs(monkeypatch, "exit=0\n+first", "exit=0\n+second")
+    # The second identical call gets the "already made" hint; the third runs.
+    agent, client = make_agent(repo, [([call("git_read", operation="diff")], ""),
+                                      ([call("git_read", operation="diff")], ""),
+                                      ([call("git_read", operation="diff")], ""),
+                                      ([], "Reviewed.")])
+    agent.run("Review my uncommitted changes")
+    last = [m["content"] for m in client.specs[-1].messages if m["role"] == "tool"]
+    assert last[0].startswith("[superseded") and "+second" in last[-1]
+
+
+def test_a_question_is_asked_for_its_answer_after_some_reading(repo):
+    reads = [([call("grep", pattern=f"x{i}")], "") for i in range(9)]
+    agent, client = make_agent(repo, [*reads, ([], "The answer.")])
+    assert agent.run("explain how calc.py is organised") == "The answer."
+    asks = lambda spec: [m for m in spec.messages
+                         if m["role"] == "user" and "read enough" in (m.get("content") or "")]
+    assert not asks(client.specs[Agent.ANSWER_BY - 1])
+    assert len(asks(client.specs[Agent.ANSWER_BY])) == 1
+
+
+def test_an_edit_task_is_not_asked_to_stop_reading(repo):
+    reads = [([call("grep", pattern=f"x{i}")], "") for i in range(9)]
+    agent, client = make_agent(repo, [*reads, ([], "done")])
+    agent.run("fix divide() in calc.py")
+    assert not any("read enough" in (m.get("content") or "") for m in client.specs[-1].messages)
+
+
+def test_a_question_still_reading_gets_one_call_without_tools_for_its_answer(repo):
+    reads = [([call("grep", pattern=f"x{i}")], "") for i in range(20)]
+    agent, client = make_agent(repo, [*reads[:Agent.ANSWER_NOW], ([], "Here is the review.")])
+    agent.settings = __import__("dataclasses").replace(agent.settings, max_turns=25)
+    assert agent.run("Review my uncommitted changes") == "Here is the review."
+    assert client.specs[-1].tool_choice == "none"
+    assert len(client.specs) == Agent.ANSWER_NOW + 1

@@ -130,6 +130,13 @@ class Registry:
                     {"operation": {"type": "string"}, "message": {"type": "string"}},
                     ["operation"]),
             partial(git_mod.git_op, repo_root=r, sandbox=self.settings.sandbox), mutating=True))
+        # Gated although it only looks: a repository's own config can make
+        # `git diff` run a filter program, so the operator sees it first.
+        self._add(ToolSpec(
+            "git_read", Permission.GATED, "Git, read-only: status, diff, diff_staged, log.",
+            _schema("git_read", "Git, read-only: status, diff, diff_staged, log.",
+                    {"operation": {"type": "string"}}, ["operation"]),
+            partial(git_mod.git_read, repo_root=r, sandbox=self.settings.sandbox)))
 
     def _register_search(self) -> None:
         self._add(ToolSpec(
@@ -148,12 +155,13 @@ class Registry:
     DIFF_TOOLS = ("apply_patch", "rename_symbol")
 
     def schemas(self, mutating_allowed: bool, git_allowed: bool = True,
-                rename_allowed: bool = True) -> list[dict]:
+                rename_allowed: bool = True, git_read_allowed: bool = True) -> list[dict]:
         """Progressive disclosure (lever 6).
 
         git_op is offered only when the task mentions git. Measured: offered
         on every task, the model committed unprompted and looped on
-        status/diff/commit inside one completion.
+        status/diff/commit inside one completion. git_read is offered when
+        the task is about changes or a review, and not beside git_op.
         """
         specs = [s for s in self.specs.values()
                  if self.settings.levers.diff_writes or s.name not in self.DIFF_TOOLS]
@@ -162,6 +170,7 @@ class Registry:
         return [s.schema for s in specs
                 if (mutating_allowed or not s.mutating)
                 and (git_allowed or s.name != "git_op")
+                and (git_read_allowed or s.name != "git_read")
                 and (rename_allowed or s.name != "rename_symbol")]
 
     def get(self, name: str) -> ToolSpec | None:

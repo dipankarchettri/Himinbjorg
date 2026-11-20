@@ -26,6 +26,7 @@ HARDEN = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
 ALLOWED = {
     "status": ["status", "--short"],
     "diff": ["diff", "--no-ext-diff", "--no-textconv"],
+    "diff_staged": ["diff", "--staged", "--no-ext-diff", "--no-textconv"],
     "add": ["add", "-A", "--", "."],
     "log": ["log", "--oneline", "-10"],
 }
@@ -71,5 +72,19 @@ def git_op(operation: str, repo_root: Path, message: str | None = None,
                               text=True, timeout=30, shell=False)
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
         return f"ERROR: {exc}"
-    out = (proc.stdout or "") + (proc.stderr or "")
-    return f"exit={proc.returncode}\n{out.strip()[:3000] or '(no output)'}"
+    out = ((proc.stdout or "") + (proc.stderr or "")).strip()
+    limit = 12000 if operation.startswith("diff") else 3000
+    if len(out) > limit:
+        out = out[:limit] + f"\n[cut at {limit} of {len(out)} characters; read the files for the rest]"
+    return f"exit={proc.returncode}\n{out or '(no output)'}"
+
+
+READ_ONLY = ("status", "diff", "diff_staged", "log")
+
+
+def git_read(operation: str, repo_root: Path, sandbox: str = "off", **_) -> str:
+    """The operations that only look: offered for a review or a question
+    about changes, where git_op (which can stage and commit) is not."""
+    if operation not in READ_ONLY:
+        return f"ERROR: git_read does {', '.join(READ_ONLY)}; {operation!r} is not one of them"
+    return git_op(operation, repo_root, sandbox=sandbox)
