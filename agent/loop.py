@@ -713,18 +713,25 @@ task in this reply."""
             turn, "user", "Stop reading. Answer the task now, completely, from what you have "
                           "found. Say what you could not check."))
         text = ""
-        for _ in range(3):              # room to answer, as for an empty reply
-            try:
-                result, _ = self._call(decision, turn, False, tools_off=True)
-            except llm_mod.GatewayError as exc:
-                trace.emit("error", {"kind": type(exc).__name__, "detail": str(exc)[:400],
-                                     "during": "answer_now"})
-                break
-            text = (result.text or "").strip()
-            if text or result.finish_reason != "length":
-                break
-            self._out_scale *= 2
-            self._skip_cache = True
+        # Everything it read, not the pruned view, fitted to the context
+        # window: one call, so worth it. Found: a review said it could not
+        # check requires-python because its read of pyproject.toml was elided.
+        mode, self.ledger.mode = self.ledger.mode, "budget"
+        try:
+            for _ in range(3):          # room to answer, as for an empty reply
+                try:
+                    result, _ = self._call(decision, turn, False, tools_off=True)
+                except llm_mod.GatewayError as exc:
+                    trace.emit("error", {"kind": type(exc).__name__, "detail": str(exc)[:400],
+                                         "during": "answer_now"})
+                    break
+                text = (result.text or "").strip()
+                if text or result.finish_reason != "length":
+                    break
+                self._out_scale *= 2
+                self._skip_cache = True
+        finally:
+            self.ledger.mode = mode
         answer = text or "The model kept reading and gave no answer. Ask a narrower question."
         self.ledger.append(LedgerEntry(turn, "assistant", answer))
         self.answer_streamed = False
@@ -994,6 +1001,13 @@ task in this reply."""
                             "with the same text. Either copy `find` verbatim from the region "
                             "shown above, or call write_file with the complete corrected file.")
 
+        if spec.mutating and out.ok:
+            # The repository may have changed, so an earlier search, listing
+            # or diff no longer describes it: a repeat runs again instead of
+            # meeting the duplicate stub, which quotes the old result. Found
+            # adding git_read: a diff after an edit would have been the old one.
+            self._seen_tool_calls.clear()
+            self._dup_warned.clear()
         self._seen_tool_calls[sig] = (turn, content[:400])
         self.print(self._activity(name, resolved, out.ok, content))
         record = {"tool": name, "ok": out.ok, "chars": len(content),

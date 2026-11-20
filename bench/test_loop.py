@@ -971,3 +971,30 @@ def test_a_question_still_reading_gets_one_call_without_tools_for_its_answer(rep
     assert agent.run("Review my uncommitted changes") == "Here is the review."
     assert client.specs[-1].tool_choice == "none"
     assert len(client.specs) == Agent.ANSWER_NOW + 1
+
+
+def test_a_search_repeated_after_an_edit_runs_again(repo):
+    # Before, the repeat met the duplicate-call stub quoting the result from
+    # before the edit, so the model could think its edit had not applied.
+    patch = call("apply_patch", path="calc.py", find="    return a * b", replace="    return b * a")
+    agent, client = make_agent(repo, [([call("grep", pattern="return b \\* a")], ""),
+                                      ([patch], ""),
+                                      ([call("grep", pattern="return b \\* a")], ""),
+                                      ([], "done")])
+    agent.run("fix multiply in calc.py")
+    last = [m["content"] for m in client.specs[-1].messages if m["role"] == "tool"]
+    assert "identical call already made" not in last[-1]
+    assert "calc.py" in last[-1] and "no matches" not in last[-1]
+
+
+def test_the_answer_call_sees_what_pruning_had_elided(repo):
+    reads = [([call("grep", pattern=f"x{i}")], "") for i in range(20)]
+    agent, client = make_agent(repo, [([call("read_file", path="calc.py")], ""),
+                                      *reads[:Agent.ANSWER_NOW - 1], ([], "The review.")])
+    agent.settings = __import__("dataclasses").replace(agent.settings, max_turns=25)
+    assert agent.run("Review my uncommitted changes") == "The review."
+    before = [m["content"] for m in client.specs[-2].messages if m["role"] == "tool"]
+    final = [m["content"] for m in client.specs[-1].messages if m["role"] == "tool"]
+    assert before[0].startswith("[elided")                       # pruned while reading
+    assert "def divide" in final[0]                               # whole for the answer
+    assert agent.ledger.mode == "turns"                           # and pruning is back after
