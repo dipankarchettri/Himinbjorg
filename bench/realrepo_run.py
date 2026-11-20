@@ -215,6 +215,56 @@ Options always get a help row, but an argument with no `help` (or `help=""`) get
 always return a `(name, help)` tuple: `("SRC", "")` here, and
 `("SRC", "Source path")` for `help="Source path"`.""",
     ),
+    # Features across several files, for work bigger than a one-file bug.
+    ClickTask(
+        id="no-such-command",
+        fix="831c8f0",
+        source="pull request #3228, written as a feature request",
+        note="states the exact messages, which the maintainers' tests check",
+        prompt="""Suggest commands for a misspelled subcommand
+
+A misspelled option gets a suggestion, but a misspelled subcommand only gets
+`Error: No such command 'pause'.`. Add the same help for commands, and make the
+two read the same way.
+
+- Add a `NoSuchCommand` exception, a `UsageError` like `NoSuchOption`, with the
+  close matches as `possibilities`, exported as `click.NoSuchCommand`. A group
+  raises it for an unknown subcommand and suggests the group's commands that are
+  close to the name.
+- Messages, for commands:
+  - `No such command 'unknown'.`
+  - one close match: `Did you mean 'push'?`
+  - several: `(Did you mean one of: 'declare', 'refine'?)`
+- and for options, which change to match:
+  - `No such option '--cat'.` (was `No such option: --cat`)
+  - `Did you mean '--count'?` (was `Did you mean --count?`)
+  - `(Did you mean one of: '--bound', '--count'?)` (was `(Possible options: --bound, --count)`)""",
+    ),
+    ClickTask(
+        id="help-option-cls",
+        fix="0b7a9ac",
+        source="issue #2832, written as a report",
+        prompt="""`@click.help_option` breaks when given a custom option class
+
+```python
+import click
+
+class MyOption(click.Option):
+    pass
+
+@click.command()
+@click.help_option("-h", cls=MyOption)
+def cmd():
+    pass
+```
+
+`cmd -h` fails with `Error: Option '-h' requires an argument.`: with `cls`, the help
+option is no longer a flag that prints the help and exits. `help_option` should take
+the same arguments as `click.option` and still make a help option of them, with any
+`cls` that subclasses `click.Option`. Without `cls` it works as before: `-h` and
+`--help` together give one row `-h, --help  Show this message and exit.`, and `-h`
+alone adds a row beside the command's own `--help`.""",
+    ),
 ]
 TASKS_BY_ID = {t.id: t for t in TASKS}
 
@@ -319,11 +369,17 @@ def run(tasks: list[ClickTask], arms: list[str], repeats: int, resume: Path | No
         out = EVIDENCE / f"click-{stamp}"
         out.mkdir(parents=True)
     done = {(r["task"], r["arm"], r["repeat"]) for r in rows}
+    # A spending cap: no new run starts once the runs so far cost this much.
+    max_cost = float(env.get("BENCH_MAX_COST") or "inf")
     for rep in range(repeats):
         for t in tasks:
             for arm in arms:
                 if (t.id, arm, rep + 1) in done:
                     continue
+                spent = sum(r.get("cost_usd") or 0 for r in rows)
+                if spent >= max_cost:
+                    print(f"stopping: ${spent:.4f} spent, cap ${max_cost:.2f}", flush=True)
+                    break
                 make_levers, prune_mode = ARMS[arm]
                 for attempt in range(6):
                     repo = prepare(t, WORK / f"{t.id}-{arm}")
