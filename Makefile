@@ -33,7 +33,7 @@ doctor:
 	$(PY) -m agent.main doctor
 
 test:
-	$(PY) -m pytest bench/test_security.py bench/test_write.py bench/test_tasks.py bench/test_loop.py bench/test_server.py bench/test_config.py bench/test_sandbox.py bench/test_doctor.py bench/test_session.py -q
+	$(PY) -m pytest -q
 
 # Check the approval prompt itself, with no model involved.
 gate-check:

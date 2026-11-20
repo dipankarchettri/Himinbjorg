@@ -16,8 +16,9 @@ ROOT = Path(__file__).resolve().parent.parent
 PY = str(ROOT / ".venv" / "bin" / "python")
 
 SCENARIOS = [
-    ("0-security-tests", [PY, "-m", "pytest", "bench/test_security.py", "bench/test_write.py", "bench/test_tasks.py", "bench/test_loop.py", "bench/test_server.py", "bench/test_config.py", "bench/test_sandbox.py", "-q"],
-     "Unit tests: security, edit tools, agent loop, task checkers (no gateway needed)"),
+    # testpaths in pyproject.toml, the same list CI runs.
+    ("0-security-tests", [PY, "-m", "pytest", "-q"],
+     "Unit tests: security, edit tools, agent loop, sessions, doctor, task checkers (no gateway needed)"),
     ("1-token-efficiency", [PY, "bench/benchmark.py", "--tasks", "all", "--repeats", "5"],
      "Naive baseline vs all levers, 7 tasks x 5 repeats at T=0.7: pass rate and tokens per completed task"),
     ("1b-cache-rerun", [PY, "bench/cache_scenario.py", "add_power"],
