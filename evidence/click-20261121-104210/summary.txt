@@ -1,0 +1,54 @@
+
+task             arm         ok   tokens  turns    secs
+------------------------------------------------------------
+usage-no-args    optimized    Y   275091     25    70.2
+echo-empty-bytes optimized    Y   126206     16    33.0
+funcparam-message optimized    N   117073     18    34.4
+choice-brackets  optimized    N   327889     25    97.6
+envvar-display   optimized    Y   302157     25    83.2
+argument-help-record optimized    Y   311619     25    51.8
+no-such-command  optimized    Y   431378     25    75.7
+help-option-cls  optimized    N   276540     25    87.5
+usage-no-args    optimized    Y   183896     20    66.5
+echo-empty-bytes optimized    Y   127744     18    58.4
+funcparam-message optimized    Y   176954     25    61.9
+choice-brackets  optimized    Y   366781     25   117.0
+envvar-display   optimized    Y   337604     21   113.4
+argument-help-record optimized    Y   240055     21    65.3
+no-such-command  optimized    Y   377280     25    60.7
+help-option-cls  optimized    Y   353715     25   172.9
+
+PER TASK: success rate, median tokens over PASSING runs
+------------------------------------------------------------------------
+  usage-no-args    naive 0/0 med=n/a        optimized  2/2 med=229493     not comparable (an arm never passed)
+  echo-empty-bytes naive 0/0 med=n/a        optimized  2/2 med=126975     not comparable (an arm never passed)
+  funcparam-message naive 0/0 med=n/a        optimized  1/2 med=176954     not comparable (an arm never passed)
+  choice-brackets  naive 0/0 med=n/a        optimized  1/2 med=366781     not comparable (an arm never passed)
+  envvar-display   naive 0/0 med=n/a        optimized  2/2 med=319880     not comparable (an arm never passed)
+  argument-help-record naive 0/0 med=n/a        optimized  2/2 med=275837     not comparable (an arm never passed)
+  no-such-command  naive 0/0 med=n/a        optimized  2/2 med=404329     not comparable (an arm never passed)
+  help-option-cls  naive 0/0 med=n/a        optimized  1/2 med=353715     not comparable (an arm never passed)
+
+TOKENS PER COMPLETED TASK: all tokens spent / runs that passed
+------------------------------------------------------------------------
+  usage-no-args    naive 0/0       n/a    optimized  2/2   229,494    n/a (an arm never passed)
+  echo-empty-bytes naive 0/0       n/a    optimized  2/2   126,975    n/a (an arm never passed)
+  funcparam-message naive 0/0       n/a    optimized  1/2   294,027    n/a (an arm never passed)
+  choice-brackets  naive 0/0       n/a    optimized  1/2   694,670    n/a (an arm never passed)
+  envvar-display   naive 0/0       n/a    optimized  2/2   319,880    n/a (an arm never passed)
+  argument-help-record naive 0/0       n/a    optimized  2/2   275,837    n/a (an arm never passed)
+  no-such-command  naive 0/0       n/a    optimized  2/2   404,329    n/a (an arm never passed)
+  help-option-cls  naive 0/0       n/a    optimized  1/2   630,255    n/a (an arm never passed)
+  ALL              naive 0/0       n/a    optimized  13/16   333,229  n/a (an arm never passed)
+
+COST PER COMPLETED TASK: gateway-priced dollars / runs that passed
+------------------------------------------------------------------------
+  usage-no-args    naive 0/0 n/a            optimized  2/2 $0.01379       n/a
+  echo-empty-bytes naive 0/0 n/a            optimized  2/2 $0.00534       n/a
+  funcparam-message naive 0/0 n/a            optimized  1/2 $0.01310       n/a
+  choice-brackets  naive 0/0 n/a            optimized  1/2 $0.04023       n/a
+  envvar-display   naive 0/0 n/a            optimized  2/2 $0.01580       n/a
+  argument-help-record naive 0/0 n/a            optimized  2/2 $0.01126       n/a
+  no-such-command  naive 0/0 n/a            optimized  2/2 $0.02114       n/a
+  help-option-cls  naive 0/0 n/a            optimized  1/2 $0.04341       n/a
+  ALL              naive 0/0 n/a            optimized  13/16 $0.01780     n/a

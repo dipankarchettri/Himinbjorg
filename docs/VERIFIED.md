@@ -1524,3 +1524,22 @@ the pass rates, but cost and cache share agree with Haiku. The earlier
 note that `budget` doubled the cost of one DeepSeek review was a single
 read-only question. `auto` (`budget` on cloud models, `turns` on local
 ones, where pruning measured 36% fewer tokens) is now the default.
+
+## The midway nudge on click (2026-11-21)
+
+An edit task that has changed no file by half its turns is told to make
+the change now (`agent/loop.py`). All eight click tasks, DeepSeek V4.1
+Flash, 25-turn limit, 2 runs each, `turns` pruning, against the clean run
+before it (38ba788, `evidence/click-20261121-043909/`).
+`evidence/click-20261121-104210/` (4ff1553).
+
+| | Before | With the nudge |
+| --- | --- | --- |
+| Six bugs solved | 8/12, $0.0238 per solved bug | 10/12, $0.0146 |
+| Two features solved | 2/4, $0.0724 per solved feature | 3/4, $0.0286 |
+
+The nudge fired in 5 of the 16 runs (envvar-display once, each feature
+twice). In all five the first edit came one to three calls later, and
+four of the five passed. Most of the gain on the bugs came from runs it
+never touched, so it is not claimed; on the features it is the
+difference between editing at turn 13 and, before, at turn 23.
