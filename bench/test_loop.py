@@ -1360,3 +1360,27 @@ def test_todo_is_offered_only_for_a_change_and_is_not_progress(repo):
     answer = _with_plan(agent2).run("fix divide() in calc.py")
     assert "todo" in {t["function"]["name"] for t in client2.specs[0].tools}
     assert "no progress" in answer
+
+
+def test_scout_investigates_before_an_edit_task_and_pins_the_findings(repo):
+    import dataclasses
+    agent, client = make_agent(repo, [
+        ([call("grep", pattern="def divide")], ""),        # the helper
+        ([], "divide is calc.py line 16; test_calc.py covers it."),
+        ([], "done"),
+    ])
+    agent.settings = dataclasses.replace(agent.settings, scout=True)
+    agent.run("fix divide() in calc.py")
+    first_main = client.specs[2].messages
+    assert any("Findings of a read-only investigation" in str(m["content"])
+               and "calc.py line 16" in str(m["content"]) for m in first_main)
+    assert not any(m["role"] == "tool" for m in first_main)   # its grep stayed in the helper
+    assert agent.stats.llm_calls == len(client.specs)
+
+
+def test_no_scout_for_a_question(repo):
+    import dataclasses
+    agent, client = make_agent(repo, [([], "It divides.")])
+    agent.settings = dataclasses.replace(agent.settings, scout=True)
+    agent.run("what does divide do?")
+    assert len(client.specs) == 1

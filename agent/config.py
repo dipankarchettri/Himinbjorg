@@ -167,6 +167,9 @@ class Settings:
     # The investigate tool: a read-only helper agent with its own context,
     # whose findings alone come back. Off until measured to pay.
     subagent: bool = False
+    # Before an edit task, the helper investigates it and its findings are
+    # pinned into the context, whether or not the model would have asked.
+    scout: bool = False
     # The todo tool: a checklist the model keeps, pinned in the context,
     # each update replacing the last. Off until measured to pay.
     plan: bool = False
@@ -281,6 +284,7 @@ def load(argv: list[str] | None = None) -> Settings:
         reasoning_effort=_reasoning_effort(env.get("AGENT_REASONING_EFFORT", "")),
         subagent=env.get("AGENT_SUBAGENT", "0").strip().lower() in ("1", "true", "yes"),
         plan=env.get("AGENT_PLAN", "0").strip().lower() in ("1", "true", "yes"),
+        scout=env.get("AGENT_SCOUT", "0").strip().lower() in ("1", "true", "yes"),
         resume=args.resume,
         repo_root=repo_root,
         confidential=is_confidential(repo_root, args.confidential),

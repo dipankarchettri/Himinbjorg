@@ -446,6 +446,18 @@ class Agent:
         rate_limited = 0
         same_turn = False
 
+        if getattr(self.settings, "scout", False) and mutating and not self.read_only:
+            # Offered as a tool, the helper was never chosen: DeepSeek, six
+            # click runs. So the loop asks it first, and the reading behind
+            # the findings stays out of this context.
+            self.print("\n  Investigating before the change ...")
+            found = self._investigate(self.SCOUT_QUESTION.format(task=task))
+            self.ledger.append(LedgerEntry(
+                base, "user", "Findings of a read-only investigation of the repository for "
+                              "this task, made before you start. Verify what you rely on; "
+                              "do not repeat the search:\n\n" + found,
+                pinned=True, kind="task"))
+
         self._last_turn = turn = base
         for step in range(1, max_turns + 1):
             self._checkpoint()          # the turns so far, before the next call
@@ -1226,6 +1238,10 @@ task in this reply."""
                 "that asked: {question}\n\nReply with the findings only, in at most 250 "
                 "words: exact file paths, line numbers, function names and the code facts "
                 "that answer it. Say what you could not find.")
+
+    SCOUT_QUESTION = ("Which files, functions and lines would have to change for this task, "
+                      "how does that code work now, and which tests cover it? The task:\n\n"
+                      "{task}")
 
     def _investigate(self, question: str) -> str:
         """Answer a read-only question in a fresh context, so the reading
