@@ -248,6 +248,7 @@ class Agent:
         self.files = FileMemory(
             enabled=settings.levers.file_memory,
             horizon=self.ledger.read_horizon if by_turns else None)
+        registry.recall_source = self._recall
         self.stats = LoopStats()
         self._last_provider: str | None = None
         self._seen_tool_calls: dict[str, tuple[int, str]] = {}   # sig -> (turn, head)
@@ -1196,6 +1197,21 @@ task in this reply."""
         first = (content.splitlines() or [""])[0][:70]
         mark = "ok" if ok else "failed"
         return f"  . {name} {target}  [{mark}] {first if not ok or name in policy.EDIT_TOOLS else ''}".rstrip()
+
+    def _recall(self, ref: str) -> str:
+        """An elided tool output, as it was. Lossless: the ledger keeps
+        every result whole and only the request leaves them out."""
+        e = self.ledger.recall(ref)
+        found = e is not None and self.ledger.recallable(e)
+        trace.emit("recall", {"ref": str(ref)[:20], "found": found,
+                              "tool": e.name if e else None})
+        if not found:
+            return (f"ERROR: no output to recall as {ref!r}. Ids are in the elided "
+                    "notes, as \"recall r12\"; a file is read again instead.")
+        body = e.content
+        if body.startswith("<untrusted-tool-output>\n") and body.endswith("\n</untrusted-tool-output>"):
+            body = body[len("<untrusted-tool-output>\n"):-len("\n</untrusted-tool-output>")]
+        return f"[{e.ref}: {e.name} output from turn {e.turn}, as it was then]\n{body}"
 
     def _tool_result(self, call: dict, turn: int, content: str, progressed: bool = False) -> bool:
         # Tool output is wrapped and marked untrusted. This is defence in

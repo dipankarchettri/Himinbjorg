@@ -58,6 +58,10 @@ class Registry:
         self.specs: dict[str, ToolSpec] = {}
         self._register_read()
         self._register_mutating()
+        # Only where pruning elides output; the agent sets the source.
+        self.recall_source = None
+        if settings.levers.pruning:
+            self._register_recall()
         # No key, no tool: a schema the model can only get an error from is
         # wasted prompt tokens on every turn.
         if privacy.external_tools_enabled and settings.tavily_api_key:
@@ -90,6 +94,18 @@ class Registry:
             _schema("symbols", "List top-level definitions in a file.",
                     {"path": {"type": "string"}}, ["path"]),
             partial(read_mod.symbols, repo_root=r)))
+
+    def _register_recall(self) -> None:
+        desc = "Bring back, whole, an earlier tool output that was elided, by its id (r12)."
+        self._add(ToolSpec(
+            "recall", Permission.FREE, desc,
+            _schema("recall", desc, {"id": {"type": "string"}}, ["id"]),
+            self._recall))
+
+    def _recall(self, id: str, **_) -> str:
+        if self.recall_source is None:
+            return "ERROR: nothing to recall in this session"
+        return self.recall_source(id)
 
     def _register_mutating(self) -> None:
         r = self.repo_root

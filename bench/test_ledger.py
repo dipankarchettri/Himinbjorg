@@ -76,3 +76,56 @@ def test_routing_reads_the_task_only():
     assert route("add a discount code", confidential=False, routing_enabled=True).tier is Tier.T1_CHEAP
     assert route("x " * 400, confidential=False, routing_enabled=True).tier is Tier.T2_CAPABLE
     assert route("fix the typo", confidential=False, routing_enabled=False).tier is Tier.T2_CAPABLE
+
+
+def _tool(ledger: Ledger, turn: int, name: str, body: str) -> LedgerEntry:
+    i = f"t{turn}{name}"
+    ledger.append(LedgerEntry(turn, "assistant", "", tool_calls=[
+        {"id": i, "type": "function", "function": {"name": name, "arguments": "{}"}}]))
+    e = LedgerEntry(turn, "tool", body, kind="tool_result", tool_call_id=i, name=name)
+    ledger.append(e)
+    return e
+
+
+def test_an_elided_command_output_can_be_recalled_whole_and_a_read_cannot():
+    # Test output cannot be had again for free; a file can be read again,
+    # and an old copy of it may be stale.
+    ledger = Ledger()
+    run = _tool(ledger, 1, "run_command", "exit=1\n" + "FAILED test_x\n" * 50)
+    read = _tool(ledger, 1, "read_file", "calc.py (5 lines): ...")
+    out = {m.get("tool_call_id"): m["content"] for m in ledger.render(9) if m["role"] == "tool"}
+    assert out[run.tool_call_id].endswith(f"; recall {run.ref} to see it whole]")
+    assert "recall" not in out[read.tool_call_id]
+    assert ledger.recall(run.ref).content == run.content
+    assert (run.ref, read.ref) == ("r1", "r2")
+
+
+def test_recall_survives_compaction_and_refs_never_repeat():
+    ledger = Ledger()
+    old = _tool(ledger, 1, "grep", "a.py:1: x")
+    ledger.compact(5, "summary")
+    assert ledger.recall(old.ref).content == "a.py:1: x"
+    assert _tool(ledger, 6, "grep", "b.py:2: y").ref == "r2"
+
+
+def test_a_restored_session_continues_the_refs():
+    ledger = Ledger()
+    _tool(ledger, 1, "grep", "a")
+    restored = Ledger(entries=list(ledger.entries))
+    assert _tool(restored, 2, "grep", "b").ref == "r2"
+
+
+def test_a_superseded_output_is_not_offered_for_recall():
+    ledger = Ledger()
+    e = _tool(ledger, 1, "grep", "calc.py:4: return a / b")
+    e.superseded = True
+    out = [m["content"] for m in ledger.render(9) if m["role"] == "tool"]
+    assert "recall" not in out[0] and not Ledger.recallable(e)
+
+
+def test_output_elided_to_fit_the_budget_names_its_ref():
+    ledger = Ledger(context_budget=500)
+    e = _tool(ledger, 1, "run_command", "y" * 4000)
+    _tool(ledger, 2, "grep", "z")
+    out = ledger.render(2)
+    assert out[1]["content"] == f"[elided to fit the context window; recall {e.ref} to see it whole]"

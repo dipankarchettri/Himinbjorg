@@ -147,6 +147,14 @@ knows its turn, its token cost, and its decay policy:
 model knows information was elided and can re-request it. Silent truncation is
 how agents start hallucinating file contents.
 
+**Recall.** The ledger keeps every tool result whole; only the request leaves
+it out. An elided command, search or web result carries an id, as in
+`[elided, turn 7: run_command -> exit=1; recall r12 to see it whole]`, and the
+`recall` tool returns it exactly as it was, so eliding output that cannot be
+had again for free (a test run) loses nothing. A file read has no id: reading
+it again gives what the file holds now, where an old copy may be stale.
+Superseded output has none either. Offered only with pruning on.
+
 **Measure.** Prompt tokens per turn, plotted against turn number. The naive
 baseline grows roughly quadratically over a session; the target is roughly flat.
 This is the most visually compelling chart in the demo.

@@ -1226,3 +1226,30 @@ def test_no_midway_nudge_without_loop_limits(repo):
     agent, client = make_agent(repo, greps + [([], "done")], loop_limits=False)
     agent.run("fix divide() in calc.py")
     assert _saw_midway(client) == []
+
+
+def test_the_model_recalls_an_elided_command_output(repo):
+    agent, client = make_agent(repo, [([call("run_command", command=["python", "-c", "print('hello')"])], "")]
+                               + [([call("grep", pattern=p)], "") for p in ("add", "sub", "mul", "div", "def")]
+                               + [([call("recall", id="r1")], ""), ([], "done")])
+    agent.run("what does the command print?")
+    stub = [m["content"] for m in client.specs[-2].messages if m["role"] == "tool"][0]
+    assert stub.endswith("; recall r1 to see it whole]")
+    recalled = [m["content"] for m in client.specs[-1].messages if m["role"] == "tool"][-1]
+    assert "[r1: run_command output from turn 1, as it was then]" in recalled and "hello" in recalled
+    assert recalled.count("<untrusted-tool-output>") == 1
+
+
+def test_recall_is_offered_only_with_pruning(repo):
+    agent, client = make_agent(repo, [([], "It divides.")])
+    agent.run("what does divide do?")
+    agent2, client2 = make_agent(repo, [([], "It divides.")], pruning=False)
+    agent2.run("what does divide do?")
+    names = lambda c: {t["function"]["name"] for t in c.specs[0].tools}
+    assert "recall" in names(client) and "recall" not in names(client2)
+
+
+def test_recalling_an_unknown_id_says_how_ids_look(repo):
+    agent, client = make_agent(repo, [([call("recall", id="r99")], ""), ([], "done")])
+    agent.run("what does divide do?")
+    assert "no output to recall as 'r99'" in client.specs[-1].messages[-1]["content"]

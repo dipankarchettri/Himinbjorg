@@ -36,6 +36,7 @@ class LedgerEntry:
     summary: str | None = None
     path: str | None = None     # a read_file result's file, relative to the repository
     superseded: bool = False
+    ref: str | None = None      # a tool result's id for recall, "r12"
 
     @property
     def tokens(self) -> int:
@@ -76,9 +77,32 @@ class Ledger:
     elided_tokens: int = 0      # left out of the latest request
     elided_total: int = 0       # left out, summed over the requests sent
     compacted_tokens: int = 0   # replaced by summaries, over the session
+    # Tool results that compaction replaced, by ref, so recall still finds
+    # them. Not saved with the session.
+    archive: dict[str, LedgerEntry] = field(default_factory=dict)
 
     def append(self, entry: LedgerEntry) -> None:
+        if entry.kind == "tool_result" and not entry.ref:
+            # From the entries, not a counter: a restored session sets
+            # them directly.
+            n = max((int(e.ref[1:]) for e in self.entries if e.ref), default=0)
+            n = max(n, max((int(r[1:]) for r in self.archive), default=0))
+            entry.ref = f"r{n + 1}"
         self.entries.append(entry)
+
+    def recall(self, ref: str) -> LedgerEntry | None:
+        """The tool result with this ref, whole, elided or not."""
+        ref = (ref or "").strip()
+        for e in self.entries:
+            if e.ref == ref:
+                return e
+        return self.archive.get(ref)
+
+    @staticmethod
+    def recallable(e: LedgerEntry) -> bool:
+        """Offered for recall when elided. Not a read: read the file again
+        for what it holds now. Not superseded output: it is stale."""
+        return bool(e.ref) and e.name != "read_file" and not e.superseded
 
     def supersede(self, predicate) -> None:
         """Mark earlier entries obsolete, e.g. a file re-read after a write."""
@@ -131,7 +155,11 @@ class Ledger:
             if (not e.pinned and e.kind == "tool_result"
                     and e.turn < (self.read_horizon(current_turn, e.path)
                                   if e.name == "read_file" else horizon)):
-                replacement = f"[elided, turn {e.turn}: {e.summary or self._one_line(content)}]"
+                replacement = f"[elided, turn {e.turn}: {e.summary or self._one_line(content)}"
+                # Lossless for output that cannot be had again for free:
+                # a test run, a command, a search.
+                replacement += (f"; recall {e.ref} to see it whole]" if self.recallable(e)
+                                else "]")
                 elided += max(0, e.tokens - estimate_tokens(replacement))
                 out.append(self._as_message(e, replacement))
                 continue
@@ -156,6 +184,7 @@ class Ledger:
         old = [e for e in self.entries if not e.pinned and e.turn < before_turn]
         if not old:
             return 0
+        self.archive.update({e.ref: e for e in old if self.recallable(e)})
         keep_pinned = [e for e in self.entries if e.pinned and e.turn < before_turn]
         recent = [e for e in self.entries if e.turn >= before_turn]
         note = LedgerEntry(before_turn - 1, "user",
@@ -182,6 +211,7 @@ class Ledger:
         unseen = last if last >= 0 else max(0, len(out) - 2)
         pinned = {i for i, e in enumerate(self.entries[:len(out)]) if e.pinned}
         stub = "[elided to fit the context window]"
+        refs = {i: e.ref for i, e in enumerate(self.entries[:len(out)]) if self.recallable(e)}
         cut = 0
         for role in ("tool", "assistant"):
             for i in range(unseen):
@@ -190,8 +220,10 @@ class Ledger:
                 m = out[i]
                 if i in pinned or m["role"] != role or len(m.get("content") or "") <= len(stub):
                     continue
-                saved = sizes[i] - estimate_tokens(stub)
-                out[i] = {**m, "content": stub}
+                body = (f"[elided to fit the context window; recall {refs[i]} to see it whole]"
+                        if i in refs and role == "tool" else stub)
+                saved = sizes[i] - estimate_tokens(body)
+                out[i] = {**m, "content": body}
                 sizes[i] -= saved
                 total -= saved
                 cut += saved
