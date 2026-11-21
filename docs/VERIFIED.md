@@ -1555,3 +1555,14 @@ the local Qwen 2.5 7B, offered on the seven-task pack, it was called once
 in the first seven runs. A tool the model does not pick changes nothing,
 so the 6/6 is a second sample of the nudge build: the features 4/4 here
 against 3/4 there. The helper is kept, off by default, for `AGENT_SCOUT`.
+
+### The scout step (2026-11-21)
+
+`AGENT_SCOUT=1`: before an edit task, the loop asks the helper which code
+must change and pins its findings. The two click features, DeepSeek, 2
+runs each (10197b1, `evidence/click-20261121-124009/`): 3/4 solved at
+$0.0220 a run, against 7/8 at about $0.020 for the same build without it
+(the two samples above). The helper spent 40k to 69k tokens a task; on
+help_option the first edit then came at the third or fourth main call
+(one run: 11 turns, $0.010), on NoSuchCommand at the ninth and the
+thirteenth. Not better on four runs, so it stays off.

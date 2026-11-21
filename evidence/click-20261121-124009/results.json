@@ -1,0 +1,142 @@
+{
+  "repo": "https://github.com/pallets/click.git",
+  "head": "08b803c",
+  "model_cheap": "openrouter/deepseek/deepseek-v4.1-flash",
+  "model_capable": "openrouter/deepseek/deepseek-v4.1-flash",
+  "max_turns": "25",
+  "rerun_after_rate_limit": 0,
+  "tasks": [
+    {
+      "id": "no-such-command",
+      "fix": "831c8f0",
+      "source": "pull request #3228, written as a feature request",
+      "prompt": "Suggest commands for a misspelled subcommand\n\nA misspelled option gets a suggestion, but a misspelled subcommand only gets\n`Error: No such command 'pause'.`. Add the same help for commands, and make the\ntwo read the same way.\n\n- Add a `NoSuchCommand` exception, a `UsageError` like `NoSuchOption`, with the\n  close matches as `possibilities`, exported as `click.NoSuchCommand`. A group\n  raises it for an unknown subcommand and suggests the group's commands that are\n  close to the name.\n- Messages, for commands:\n  - `No such command 'unknown'.`\n  - one close match: `Did you mean 'push'?`\n  - several: `(Did you mean one of: 'declare', 'refine'?)`\n- and for options, which change to match:\n  - `No such option '--cat'.` (was `No such option: --cat`)\n  - `Did you mean '--count'?` (was `Did you mean --count?`)\n  - `(Did you mean one of: '--bound', '--count'?)` (was `(Possible options: --bound, --count)`)",
+      "note": "states the exact messages, which the maintainers' tests check"
+    },
+    {
+      "id": "help-option-cls",
+      "fix": "0b7a9ac",
+      "source": "issue #2832, written as a report",
+      "prompt": "`@click.help_option` breaks when given a custom option class\n\n```python\nimport click\n\nclass MyOption(click.Option):\n    pass\n\n@click.command()\n@click.help_option(\"-h\", cls=MyOption)\ndef cmd():\n    pass\n```\n\n`cmd -h` fails with `Error: Option '-h' requires an argument.`: with `cls`, the help\noption is no longer a flag that prints the help and exits. `help_option` should take\nthe same arguments as `click.option` and still make a help option of them, with any\n`cls` that subclasses `click.Option`. Without `cls` it works as before: `-h` and\n`--help` together give one row `-h, --help  Show this message and exit.`, and `-h`\nalone adds a row beside the command's own `--help`.",
+      "note": ""
+    }
+  ],
+  "runs": [
+    {
+      "task": "help-option-cls",
+      "arm": "optimized",
+      "success": true,
+      "turns": 25,
+      "llm_calls": 35,
+      "prompt_tokens": 304147,
+      "completion_tokens": 12796,
+      "total_tokens": 316943,
+      "cache_hits": 0,
+      "cached_tokens": 0,
+      "provider_tokens": 316943,
+      "tool_calls": 46,
+      "approvals": 14,
+      "wall_seconds": 114.4,
+      "cost_usd": 0.016565,
+      "cost_logs": "35/35",
+      "prompt_cache_read": 234496,
+      "prompt_cache_write": 0,
+      "tiers": {
+        "T2_CAPABLE": 35
+      },
+      "suppressed_rereads": 0,
+      "elided_tokens": 35368,
+      "error": "",
+      "stop": "stopped: reached the 25-turn limit\n\nWhat I did:\n\n- Changed `src/click/decorators.py`: `help_option()` now merges the hel",
+      "repeat": 1,
+      "grade": "635 passed, 21 skipped, 1 xfailed in 1.60s"
+    },
+    {
+      "task": "no-such-command",
+      "arm": "optimized",
+      "success": false,
+      "turns": 17,
+      "llm_calls": 24,
+      "prompt_tokens": 307816,
+      "completion_tokens": 21721,
+      "total_tokens": 329537,
+      "cache_hits": 0,
+      "cached_tokens": 0,
+      "provider_tokens": 329537,
+      "tool_calls": 55,
+      "approvals": 6,
+      "wall_seconds": 100.4,
+      "cost_usd": 0.029549,
+      "cost_logs": "24/24",
+      "prompt_cache_read": 235392,
+      "prompt_cache_write": 0,
+      "tiers": {
+        "T2_CAPABLE": 24
+      },
+      "suppressed_rereads": 0,
+      "elided_tokens": 18944,
+      "error": "",
+      "stop": "stopped: three consecutive turns made no progress\n\n**What I did**\n\n- `src/click/exceptions.py`: Added `NoSuchCommand(Usa",
+      "repeat": 1,
+      "grade": "fix tests failed: ands.py:581: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_commands.py::test_unknown_command - assert \"No such command...\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 79 passed in 0.38s\n"
+    },
+    {
+      "task": "help-option-cls",
+      "arm": "optimized",
+      "success": true,
+      "turns": 11,
+      "llm_calls": 20,
+      "prompt_tokens": 136390,
+      "completion_tokens": 5435,
+      "total_tokens": 141825,
+      "cache_hits": 0,
+      "cached_tokens": 0,
+      "provider_tokens": 141825,
+      "tool_calls": 28,
+      "approvals": 6,
+      "wall_seconds": 42.4,
+      "cost_usd": 0.010149,
+      "cost_logs": "20/20",
+      "prompt_cache_read": 77696,
+      "prompt_cache_write": 0,
+      "tiers": {
+        "T2_CAPABLE": 20
+      },
+      "suppressed_rereads": 0,
+      "elided_tokens": 9480,
+      "error": "",
+      "stop": "",
+      "repeat": 2,
+      "grade": "636 passed, 21 skipped, 1 xfailed in 1.60s"
+    },
+    {
+      "task": "no-such-command",
+      "arm": "optimized",
+      "success": true,
+      "turns": 25,
+      "llm_calls": 35,
+      "prompt_tokens": 545768,
+      "completion_tokens": 25675,
+      "total_tokens": 571443,
+      "cache_hits": 0,
+      "cached_tokens": 0,
+      "provider_tokens": 571443,
+      "tool_calls": 61,
+      "approvals": 17,
+      "wall_seconds": 168.9,
+      "cost_usd": 0.031575,
+      "cost_logs": "35/35",
+      "prompt_cache_read": 423680,
+      "prompt_cache_write": 0,
+      "tiers": {
+        "T2_CAPABLE": 35
+      },
+      "suppressed_rereads": 0,
+      "elided_tokens": 64548,
+      "error": "",
+      "stop": "stopped: reached the 25-turn limit\n\n**What I did**\n\n- `src/click/exceptions.py`: added `NoSuchCommand(UsageError)` next ",
+      "repeat": 2,
+      "grade": "1492 passed, 23 skipped, 30000 deselected, 1 xfailed in 4.60s"
+    }
+  ]
+}
