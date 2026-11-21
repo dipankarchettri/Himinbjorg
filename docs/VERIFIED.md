@@ -1544,3 +1544,14 @@ four of the five passed. Most of the gain on the bugs came from runs it
 never touched, so that part is not claimed. The baseline's feature traces
 were not kept, so when its runs first edited is not known; the trace
 that motivated the nudge (choice-brackets) first edited at turn 23.
+
+## The investigate tool is offered and not chosen (2026-11-21)
+
+`AGENT_SUBAGENT=1` offers `investigate`, a read-only helper with its own
+context. The two click features and choice-brackets, DeepSeek V4.1 Flash,
+2 runs each, `turns` pruning (083d52f, `evidence/click-20261121-122734/`):
+6/6 solved, $0.0213 a run, and `investigate` called in none of them. On
+the local Qwen 2.5 7B, offered on the seven-task pack, it was called once
+in the first seven runs. A tool the model does not pick changes nothing,
+so the 6/6 is a second sample of the nudge build: the features 4/4 here
+against 3/4 there. The helper is kept, off by default, for `AGENT_SCOUT`.
