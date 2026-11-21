@@ -62,6 +62,11 @@ class Registry:
         self.recall_source = None
         if settings.levers.pruning:
             self._register_recall()
+        self.investigate_source = None
+        if getattr(settings, "subagent", False):
+            self._register_investigate()
+        if getattr(settings, "plan", False):
+            self._register_todo()
         # No key, no tool: a schema the model can only get an error from is
         # wasted prompt tokens on every turn.
         if privacy.external_tools_enabled and settings.tavily_api_key:
@@ -106,6 +111,40 @@ class Registry:
         if self.recall_source is None:
             return "ERROR: nothing to recall in this session"
         return self.recall_source(id)
+
+    INVESTIGATE_DESC = ("Hand a read-only question (where is X done, why does Y happen) to a "
+                        "helper with its own context; only its findings come back. Use it "
+                        "before reading widely, not for one file you already know.")
+
+    def _register_investigate(self) -> None:
+        self._add(ToolSpec(
+            "investigate", Permission.FREE, self.INVESTIGATE_DESC,
+            _schema("investigate", self.INVESTIGATE_DESC,
+                    {"question": {"type": "string"}}, ["question"]),
+            self._investigate))
+
+    def _investigate(self, question: str, **_) -> str:
+        if self.investigate_source is None:
+            return "ERROR: investigate is not available here"
+        return self.investigate_source(question)
+
+    TODO_DESC = ("Keep a checklist for a change of several steps: the whole list, one item "
+                 "per line, \"[x]\" before each done item. The latest list stays in view; "
+                 "send it again as items are done.")
+
+    def _register_todo(self) -> None:
+        self._add(ToolSpec(
+            "todo", Permission.FREE, self.TODO_DESC,
+            _schema("todo", self.TODO_DESC, {"items": {"type": "string"}}, ["items"]),
+            self._todo))
+
+    @staticmethod
+    def _todo(items: str, **_) -> str:
+        lines = [l.strip() for l in str(items).splitlines() if l.strip()]
+        if not lines:
+            return "ERROR: the list is empty; send every item, one per line"
+        done = sum(l.startswith("[x]") for l in lines)
+        return f"plan ({done} of {len(lines)} done):\n" + "\n".join(lines)
 
     def _register_mutating(self) -> None:
         r = self.repo_root
@@ -185,6 +224,7 @@ class Registry:
             return [s.schema for s in specs]
         return [s.schema for s in specs
                 if (mutating_allowed or not s.mutating)
+                and (mutating_allowed or s.name != "todo")
                 and (git_allowed or s.name != "git_op")
                 and (git_read_allowed or s.name != "git_read")
                 and (rename_allowed or s.name != "rename_symbol")]

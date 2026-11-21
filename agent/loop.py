@@ -230,8 +230,9 @@ class Agent:
     RATE_LIMIT_WAIT = 5.0
 
     def __init__(self, settings, privacy, client: llm_mod.LLMClient, registry: Registry,
-                 printer=print, on_text=None):
+                 printer=print, on_text=None, read_only: bool = False):
         self.settings = settings
+        self.read_only = read_only      # the investigate helper: never offered a write
         self.privacy = privacy
         self.client = client
         self.registry = registry
@@ -240,15 +241,17 @@ class Agent:
         # not streamed, as in the benchmark.
         self.on_text = on_text
         self.answer_streamed = False    # the last answer was already shown live
+        self._prune_mode = getattr(settings, "prune_mode", "turns")
         self.ledger = Ledger(pruning_enabled=settings.levers.pruning,
                              prune_step=settings.prune_step,
                              context_budget=settings.context_budget,
-                             mode=getattr(settings, "prune_mode", "turns"))
-        by_turns = settings.levers.pruning and self.ledger.mode == "turns"
+                             mode="budget" if self._prune_mode == "budget" else "turns")
         self.files = FileMemory(
             enabled=settings.levers.file_memory,
-            horizon=self.ledger.read_horizon if by_turns else None)
+            horizon=self._read_horizon if settings.levers.pruning else None)
         registry.recall_source = self._recall
+        if not read_only:
+            registry.investigate_source = self._investigate
         self.stats = LoopStats()
         self._last_provider: str | None = None
         self._seen_tool_calls: dict[str, tuple[int, str]] = {}   # sig -> (turn, head)
@@ -410,7 +413,7 @@ class Agent:
 
     def _run_task(self, task: str, base: int) -> str:
 
-        mutating = is_mutating(task)
+        mutating = False if self.read_only else is_mutating(task)
         self.ledger.keep_reads_from = base
         self.ledger.keep_paths = None if mutating else named_paths(task)
         self._git_allowed = bool(GIT_HINT.search(task))
@@ -839,9 +842,6 @@ task in this reply."""
                 self.print(f"  Low budget headroom; pre-emptively using {nxt.value}.")
                 decision = router_mod.RoutingDecision(nxt, "preempt", "escalated")
         self._tier_in_flight = decision
-        if (not tools_off and self.settings.levers.pruning and self.ledger.mode == "budget"
-                and self.ledger.estimate(turn) > self.COMPACT_AT * self.ledger.context_budget):
-            self._compact(decision, turn, mutating)
 
         model = router_mod.model_for(decision.tier, self.settings)
         fallbacks = router_mod.fallbacks_for(
@@ -862,6 +862,16 @@ task in this reply."""
         local = self.settings.confidential or model.startswith(self.LOCAL_PROVIDERS)
         self.ledger.context_budget = (self.settings.context_budget if local
                                       else self.settings.cloud_context_budget)
+        if self._prune_mode == "auto" and not tools_off:
+            # The context whole where the provider caches it; pruned where
+            # nothing is billed and the window is small. Measured: kept
+            # whole, Claude Haiku cost 82% less than naive, against 71%
+            # pruned; on a local Qwen it took 3% more tokens than naive,
+            # against 36% fewer pruned (docs/VERIFIED.md).
+            self.ledger.mode = "turns" if local else "budget"
+        if (not tools_off and self.settings.levers.pruning and self.ledger.mode == "budget"
+                and self.ledger.estimate(turn) > self.COMPACT_AT * self.ledger.context_budget):
+            self._compact(decision, turn, mutating)
         messages = self.ledger.render(turn)
         if not local and sum(estimate_tokens(m.get("content") or "") for m in messages) \
                 > self.settings.context_budget:
@@ -1127,7 +1137,9 @@ task in this reply."""
             record["args"] = {k: (str(v)[:300]) for k, v in resolved.items()
                               if k in ("_rel", "find", "replace", "old", "new")}
         trace.emit("tool_result", record)
-        return self._tool_result(call, turn, content, progressed=out.ok)
+        # Rewriting the list is not progress: it must not keep the
+        # no-progress stop from firing on a stuck run.
+        return self._tool_result(call, turn, content, progressed=out.ok and name != "todo")
 
     AFTER_PATCH_CONTEXT = 10    # lines either side of the change, for a file too long to resend
 
@@ -1165,6 +1177,13 @@ task in this reply."""
         body, _ = redact_mod.redact(region.content)
         return f"\n\nThe edited region now:\n{body}"
 
+    def _read_horizon(self, turn: int, path: str | None = None) -> int:
+        """For file memory: reads before this turn are out of the context.
+        Nothing is, while the context is kept whole."""
+        if self.ledger.mode != "turns":
+            return -(10 ** 9)
+        return self.ledger.read_horizon(turn, path)
+
     def _elided_by_next_request(self, first_turn: int, turn: int, name: str = "",
                                 path: str | None = None) -> bool:
         horizon = (self.ledger.read_horizon(turn + 1, path) if name == "read_file"
@@ -1197,6 +1216,45 @@ task in this reply."""
         first = (content.splitlines() or [""])[0][:70]
         mark = "ok" if ok else "failed"
         return f"  . {name} {target}  [{mark}] {first if not ok or name in policy.EDIT_TOOLS else ''}".rstrip()
+
+    # The helper's limits: a question is asked for its answer after
+    # SUB_ANSWER_BY turns and given one with tools off at SUB_TURNS.
+    SUB_TURNS = 8
+    SUB_ANSWER_BY = 5
+    SUB_TASK = ("Investigate this without changing anything, and report back to the agent "
+                "that asked: {question}\n\nReply with the findings only, in at most 250 "
+                "words: exact file paths, line numbers, function names and the code facts "
+                "that answer it. Say what you could not find.")
+
+    def _investigate(self, question: str) -> str:
+        """Answer a read-only question in a fresh context, so the reading
+        behind it never enters this one. Measured on click choice-brackets
+        (DeepSeek): 13 git history commands and the first edit at turn 23
+        of 25, every result of them carried in the main context."""
+        import dataclasses
+        sub_settings = dataclasses.replace(self.settings, subagent=False,
+                                           max_turns=self.SUB_TURNS)
+        registry = Registry(self.privacy, sub_settings)
+        # Free tools only: no edit, no command, nothing to approve.
+        registry.specs = {k: v for k, v in registry.specs.items()
+                          if v.permission is Permission.FREE}
+        indent = lambda *a, **k: self.print(*("    " + str(x) for x in a), **k)
+        sub = Agent(sub_settings, self.privacy, self.client, registry,
+                    printer=indent, read_only=True)
+        sub.ANSWER_BY, sub.ANSWER_NOW = self.SUB_ANSWER_BY, self.SUB_TURNS
+        answer = sub.run(self.SUB_TASK.format(question=question))
+        s = sub.stats
+        for k in ("llm_calls", "prompt_tokens", "completion_tokens", "cache_hits",
+                  "cached_tokens", "prompt_cache_read", "prompt_cache_write", "tool_calls"):
+            setattr(self.stats, k, getattr(self.stats, k) + getattr(s, k))
+        self.stats.request_ids.extend(s.request_ids)
+        for tier, n in s.tier_calls.items():
+            self.stats.tier_calls[tier] = self.stats.tier_calls.get(tier, 0) + n
+        trace.emit("subagent", {"question": question[:200], "turns": s.turns,
+                                "llm_calls": s.llm_calls,
+                                "tokens": s.prompt_tokens + s.completion_tokens})
+        return (f"{answer}\n[investigated in {s.turns} turns, "
+                f"{s.prompt_tokens + s.completion_tokens:,} tokens]")
 
     def _recall(self, ref: str) -> str:
         """An elided tool output, as it was. Lossless: the ledger keeps
@@ -1238,6 +1296,13 @@ task in this reply."""
                 for e in self.ledger.entries:
                     if e.pinned and e.summary and e.summary.startswith(key + " "):
                         e.pinned, e.superseded = False, True
+        if name == "todo" and content.startswith("plan ("):
+            # The latest list stays in view, whatever pruning does; the
+            # earlier ones are stale.
+            pin = True
+            for e in self.ledger.entries:
+                if e.name == "todo" and e.pinned:
+                    e.pinned, e.superseded = False, True
         path = None
         if name == "read_file":
             try:
@@ -1248,6 +1313,6 @@ task in this reply."""
         self.ledger.append(LedgerEntry(
             turn, "tool", wrapped, kind="tool_result", tool_call_id=call["id"], name=name,
             pinned=pin, path=path,
-            summary=(f"{name}:{op} -> diff" if pin else
+            summary=(f"{name}:{op} -> diff" if pin and name in ("git_read", "git_op") else
                      f"{name} -> {content.splitlines()[0][:70] if content else ''}")))
         return progressed

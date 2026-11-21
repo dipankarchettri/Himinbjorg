@@ -156,12 +156,19 @@ class Settings:
     # keep everything verbatim, so the prompt prefix stays cacheable, and
     # summarise the older turns once the context nears context_budget
     # (opencode's approach). Cheaper only with provider prompt caching;
-    # on a local model it costs more tokens (docs/VERIFIED.md).
+    # on a local model it costs more tokens (docs/VERIFIED.md). "auto":
+    # per call, budget for a cloud model and turns for a local one.
     prune_mode: str = "turns"
     # Sent to cloud models when set. On DeepSeek V4.1 Flash "low" halved
     # the reasoning tokens for the same answer; Gemini 3.1 Flash-Lite does
     # not reason by default, and any effort turns it on. So unset by default.
     reasoning_effort: str = ""
+    # The investigate tool: a read-only helper agent with its own context,
+    # whose findings alone come back. Off until measured to pay.
+    subagent: bool = False
+    # The todo tool: a checklist the model keeps, pinned in the context,
+    # each update replacing the last. Off until measured to pay.
+    plan: bool = False
     resume: bool = False        # continue the saved session (agent/session.py)
 
     @property
@@ -210,8 +217,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _prune_mode(value: str) -> str:
     mode = value.strip().lower()
-    if mode not in ("turns", "budget"):
-        raise ValueError(f"AGENT_PRUNE_MODE must be turns or budget, not {value!r}")
+    if mode not in ("auto", "turns", "budget"):
+        raise ValueError(f"AGENT_PRUNE_MODE must be auto, turns or budget, not {value!r}")
     return mode
 
 
@@ -271,6 +278,8 @@ def load(argv: list[str] | None = None) -> Settings:
         cloud_context_budget=int(env.get("AGENT_CLOUD_CONTEXT_TOKENS", "64000")),
         prune_mode=_prune_mode(env.get("AGENT_PRUNE_MODE", "turns")),
         reasoning_effort=_reasoning_effort(env.get("AGENT_REASONING_EFFORT", "")),
+        subagent=env.get("AGENT_SUBAGENT", "0").strip().lower() in ("1", "true", "yes"),
+        plan=env.get("AGENT_PLAN", "0").strip().lower() in ("1", "true", "yes"),
         resume=args.resume,
         repo_root=repo_root,
         confidential=is_confidential(repo_root, args.confidential),

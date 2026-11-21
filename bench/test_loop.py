@@ -1253,3 +1253,109 @@ def test_recalling_an_unknown_id_says_how_ids_look(repo):
     agent, client = make_agent(repo, [([call("recall", id="r99")], ""), ([], "done")])
     agent.run("what does divide do?")
     assert "no output to recall as 'r99'" in client.specs[-1].messages[-1]["content"]
+
+
+def _long_session(repo, cloud: bool, mode: str = "auto"):
+    import dataclasses
+    greps = [([call("grep", pattern=p)], "") for p in ("add", "sub", "mul", "div", "def", "return")]
+    agent, client = make_agent(repo, greps + [([], "done")])
+    agent.settings = dataclasses.replace(agent.settings, prune_mode=mode)
+    agent._prune_mode = mode
+    if cloud:
+        _cloud(agent)
+    agent.run("what does calc.py do?")
+    return [m["content"] for m in client.specs[-1].messages if m["role"] == "tool"]
+
+
+def test_auto_keeps_a_cloud_context_whole_and_prunes_a_local_one(repo):
+    # Whole, the prompt prefix stays cacheable: Haiku cost 82% less than
+    # naive that way, against 71% pruned. Local, pruning saved 36%.
+    assert not any(c.startswith("[elided") for c in _long_session(repo, cloud=True))
+    assert any(c.startswith("[elided") for c in _long_session(repo, cloud=False))
+
+
+def test_an_explicit_prune_mode_is_kept_on_a_cloud_model(repo):
+    assert any(c.startswith("[elided") for c in _long_session(repo, cloud=True, mode="turns"))
+
+
+def test_auto_is_accepted_as_a_prune_mode():
+    from agent.config import _prune_mode
+    assert _prune_mode(" Auto ") == "auto"
+
+
+def _with_subagent(agent):
+    import dataclasses
+    agent.settings = dataclasses.replace(agent.settings, subagent=True)
+    agent.registry = Registry(agent.privacy, agent.settings)
+    agent.registry.recall_source = agent._recall
+    agent.registry.investigate_source = agent._investigate
+    return agent
+
+
+def test_investigate_answers_in_its_own_context_and_counts_its_tokens(repo):
+    agent, client = make_agent(repo, [
+        ([call("investigate", question="where is divide defined?")], ""),
+        ([call("grep", pattern="def divide")], ""),          # the helper's turns
+        ([], "divide is in calc.py, line 16."),
+        ([], "done"),
+    ])
+    _with_subagent(agent).run("fix divide() in calc.py")
+    # The helper's grep never reached the main context; its findings did.
+    main = client.specs[-1].messages
+    assert not any("def divide" in str(m.get("content")) and m["role"] == "tool"
+                   and "investigated" not in str(m.get("content")) for m in main)
+    found = [m["content"] for m in main if m["role"] == "tool"][-1]
+    assert "divide is in calc.py, line 16." in found and "[investigated in" in found
+    # Every call the client served is in the totals, the helper's included.
+    assert agent.stats.llm_calls == len(client.specs) == 5
+    assert agent.stats.prompt_tokens == 100 * len(client.specs)
+
+
+def test_the_helper_gets_only_free_tools_and_cannot_recurse(repo):
+    agent, client = make_agent(repo, [
+        ([call("investigate", question="where is divide?")], ""),
+        ([], "calc.py"),
+        ([], "done"),
+    ])
+    _with_subagent(agent).run("fix divide() in calc.py")
+    helper = {t["function"]["name"] for t in client.specs[1].tools}
+    assert "investigate" not in helper and "apply_patch" not in helper
+    assert "run_command" not in helper and "grep" in helper
+    assert "investigate" in {t["function"]["name"] for t in client.specs[0].tools}
+
+
+def test_investigate_is_off_by_default(repo):
+    agent, client = make_agent(repo, [([], "It divides.")])
+    agent.run("what does divide do?")
+    assert "investigate" not in {t["function"]["name"] for t in client.specs[0].tools}
+
+
+def _with_plan(agent):
+    import dataclasses
+    agent.settings = dataclasses.replace(agent.settings, plan=True)
+    agent.registry = Registry(agent.privacy, agent.settings)
+    agent.registry.recall_source = agent._recall
+    return agent
+
+
+def test_the_latest_plan_stays_in_view_and_replaces_the_last(repo):
+    turns = [([call("todo", items="[ ] fix divide\n[ ] add a test")], "")]
+    turns += [([call("grep", pattern=p)], "") for p in ("add", "sub", "mul", "div")]
+    turns += [([call("todo", items="[x] fix divide\n[ ] add a test")], ""),
+              ([call("grep", pattern="def")], ""), ([call("grep", pattern="return")], ""),
+              ([], "done")]
+    agent, client = make_agent(repo, turns)
+    _with_plan(agent).run("fix divide() in calc.py")
+    tools = [m["content"] for m in client.specs[-1].messages if m["role"] == "tool"]
+    assert any("plan (1 of 2 done):" in c for c in tools)          # pinned past pruning
+    assert not any("[ ] fix divide" in c for c in tools)            # the old one is stale
+
+
+def test_todo_is_offered_only_for_a_change_and_is_not_progress(repo):
+    agent, client = make_agent(repo, [([], "It divides.")])
+    _with_plan(agent).run("what does divide do?")
+    assert "todo" not in {t["function"]["name"] for t in client.specs[0].tools}
+    agent2, client2 = make_agent(repo, [([call("todo", items=f"[ ] step {i}")], "") for i in range(6)])
+    answer = _with_plan(agent2).run("fix divide() in calc.py")
+    assert "todo" in {t["function"]["name"] for t in client2.specs[0].tools}
+    assert "no progress" in answer

@@ -124,6 +124,8 @@ def build_settings(repo: Path, levers: LeverFlags, env: dict,
         auto_approve=True,
         cache_scope=cache_scope,
         temperature=float(env.get("BENCH_TEMPERATURE", "0.7")),
+        subagent=env.get("AGENT_SUBAGENT", "0").strip().lower() in ("1", "true", "yes"),
+        plan=env.get("AGENT_PLAN", "0").strip().lower() in ("1", "true", "yes"),
         prune_step=int(env.get("AGENT_PRUNE_STEP", "4")),
         prune_mode=prune_mode,
     )
