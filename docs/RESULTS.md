@@ -110,6 +110,36 @@ the maintainers' fix passes the whole suite.
   before this run; the other results on this page were measured with
   the bug.
 
+### Two multi-file features, and the six bugs again, on DeepSeek
+
+Two later click changes that touch several files: a `NoSuchCommand`
+exception with suggestions, matching the option messages (`831c8f0`,
+pull request #3228, the exact messages stated), and `help_option` with
+a custom `cls` (`0b7a9ac`, issue #2832). DeepSeek V4.1 Flash on every
+tier, levers on, 25-turn limit, 2 runs per task, no web search.
+`evidence/click-20261121-043909/`.
+
+| Task | Solved | Cost per run |
+| --- | --- | --- |
+| Six bugs above | 8/12 | $0.0159 |
+| `NoSuchCommand` (`831c8f0`) | 1/2 | $0.0265 |
+| `help_option(cls=...)` (`0b7a9ac`) | 1/2 | $0.0459 |
+
+- **Before this run, 0/12 on the features.** Edits had a 1,200-token
+  output cap, set for local models; DeepSeek's reasoning filled it on
+  every reply that would have held the patch, and no run made an edit
+  (`evidence/click-20261121-020112/`, `-020934/`). The cap is now local
+  only.
+- **The checkout leaked the fix.** One feature run that passed had read
+  the fix commit with `git show`: the checkout kept click's full
+  history. A checkout now holds only the history up to the task's
+  commit; this run is the first on that, and its git commands reached
+  nothing later.
+- Not comparable with the Haiku table: another model, 2 runs, a
+  25-turn limit. The failures were `choice-brackets` twice, and once
+  each `envvar-display`, `argument-help-record` and each feature; five
+  of the six hit the turn limit.
+
 ## Against another agent: opencode
 
 opencode 2.3.2 on the same 7 tasks, through the same gateway to the same
