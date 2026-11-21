@@ -1609,3 +1609,20 @@ nine configurations (these seven and the two below), seven wrote a
 comment instead of a docstring, one repeated the `def` line inside the
 function and one changed nothing. zero_check and add_power pass in
 nearly every run.
+
+### The investigate helper and the todo list, same pack
+
+Every lever on plus `AGENT_SUBAGENT=1` or `AGENT_PLAN=1` (083d52f), run
+alongside the ablation and then alone until 17:00; same evidence
+directory. Against all on, on the 9 repetitions run at the same time:
+
+| Configuration | Passed | Tokens per pass | Against all on, 95% interval | Pass rate change, 95% interval |
+| --- | --- | --- | --- | --- |
+| With investigate | 31/63 | 36,265 | -16.7% [-39.6%, +16.4%] | +4.8% [-6.3%, +15.9%] |
+| With todo | 29/63 | 39,931 | -8.3% [-34.5%, +32.4%] | +1.6% [-9.5%, +12.7%] |
+
+Over all repetitions, 93/206 and 80/194. `investigate` was called 14
+times in 206 runs, 13 of them on shop_bulk_bug (6/29 there, against 1/9
+all on); `todo` 50 times in 194 runs. shop_rename passed 8/29 with the
+helper offered and never called, against 0/9 all on, which is the size
+of the per-task spread. Neither interval excludes zero; both stay off.
