@@ -1541,5 +1541,6 @@ before it (38ba788, `evidence/click-20261121-043909/`).
 The nudge fired in 5 of the 16 runs (envvar-display once, each feature
 twice). In all five the first edit came one to three calls later, and
 four of the five passed. Most of the gain on the bugs came from runs it
-never touched, so it is not claimed; on the features it is the
-difference between editing at turn 13 and, before, at turn 23.
+never touched, so that part is not claimed. The baseline's feature traces
+were not kept, so when its runs first edited is not known; the trace
+that motivated the nudge (choice-brackets) first edited at turn 23.
