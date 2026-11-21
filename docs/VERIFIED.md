@@ -1502,3 +1502,25 @@ COST PER COMPLETED TASK: gateway-priced dollars / runs that passed
 - **The last word of streamed text** came after an approval prompt in
   the terminal, since it is held back until the word ends (so a line
   can wrap between words).
+
+## Context kept whole on a cloud model: DeepSeek on click (2026-11-21)
+
+The six click bugs, DeepSeek V4.1 Flash on every tier, 25-turn limit, 2
+runs each, levers on, the same commit (4ff1553) in both modes.
+`evidence/click-20261121-111304/` (budget) and the first nine bug runs
+of `evidence/click-20261121-104210/` (turns), with the clean run on
+38ba788 (`evidence/click-20261121-043909/`) for a second turns figure.
+
+| `AGENT_PRUNE_MODE` | Solved | Cost per solved bug | Tokens per solved bug | Prompt read from the provider cache | Turns per run |
+| --- | --- | --- | --- | --- | --- |
+| `turns`, 38ba788 | 8/12 | $0.0238 | 367,844 | 77% | 20.8 |
+| `turns`, 4ff1553 | 7/9 | $0.0141 | 278,376 | 77% | 21.9 |
+| `budget`, 4ff1553 | 11/12 | $0.0111 | 253,614 | 89% | 18.4 |
+
+Kept whole, more of the prompt came from DeepSeek's cache, and fewer
+turns were spent; it is the second provider after Claude Haiku on which
+`budget` is the cheaper mode. Twelve runs a mode is not enough to rank
+the pass rates, but cost and cache share agree with Haiku. The earlier
+note that `budget` doubled the cost of one DeepSeek review was a single
+read-only question. `auto` (`budget` on cloud models, `turns` on local
+ones, where pruning measured 36% fewer tokens) is now the default.

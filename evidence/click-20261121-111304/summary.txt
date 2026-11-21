@@ -1,0 +1,44 @@
+
+task             arm         ok   tokens  turns    secs
+------------------------------------------------------------
+usage-no-args    keepctx      Y   133928     16    50.3
+echo-empty-bytes keepctx      Y   110994     15    36.8
+funcparam-message keepctx      N   172349     24    61.2
+choice-brackets  keepctx      Y   443406     22    83.8
+envvar-display   keepctx      Y   195019     16    60.6
+argument-help-record keepctx      Y   129529     12    56.7
+usage-no-args    keepctx      Y   220344     23    78.4
+echo-empty-bytes keepctx      Y   229273     21    50.7
+funcparam-message keepctx      Y    35544      9    23.6
+choice-brackets  keepctx      Y   491378     25   163.9
+envvar-display   keepctx      Y   403833     22   101.1
+argument-help-record keepctx      Y   224158     16    50.4
+
+PER TASK: success rate, median tokens over PASSING runs
+------------------------------------------------------------------------
+  usage-no-args    naive 0/0 med=n/a        keepctx    2/2 med=177136     not comparable (an arm never passed)
+  echo-empty-bytes naive 0/0 med=n/a        keepctx    2/2 med=170133     not comparable (an arm never passed)
+  funcparam-message naive 0/0 med=n/a        keepctx    1/2 med=35544      not comparable (an arm never passed)
+  choice-brackets  naive 0/0 med=n/a        keepctx    2/2 med=467392     not comparable (an arm never passed)
+  envvar-display   naive 0/0 med=n/a        keepctx    2/2 med=299426     not comparable (an arm never passed)
+  argument-help-record naive 0/0 med=n/a        keepctx    2/2 med=176843     not comparable (an arm never passed)
+
+TOKENS PER COMPLETED TASK: all tokens spent / runs that passed
+------------------------------------------------------------------------
+  usage-no-args    naive 0/0       n/a    keepctx    2/2   177,136    n/a (an arm never passed)
+  echo-empty-bytes naive 0/0       n/a    keepctx    2/2   170,134    n/a (an arm never passed)
+  funcparam-message naive 0/0       n/a    keepctx    1/2   207,893    n/a (an arm never passed)
+  choice-brackets  naive 0/0       n/a    keepctx    2/2   467,392    n/a (an arm never passed)
+  envvar-display   naive 0/0       n/a    keepctx    2/2   299,426    n/a (an arm never passed)
+  argument-help-record naive 0/0       n/a    keepctx    2/2   176,844    n/a (an arm never passed)
+  ALL              naive 0/0       n/a    keepctx    11/12   253,614  n/a (an arm never passed)
+
+COST PER COMPLETED TASK: gateway-priced dollars / runs that passed
+------------------------------------------------------------------------
+  usage-no-args    naive 0/0 n/a            keepctx    2/2 $0.00662       n/a
+  echo-empty-bytes naive 0/0 n/a            keepctx    2/2 $0.00620       n/a
+  funcparam-message naive 0/0 n/a            keepctx    1/2 $0.00709       n/a
+  choice-brackets  naive 0/0 n/a            keepctx    2/2 $0.02972       n/a
+  envvar-display   naive 0/0 n/a            keepctx    2/2 $0.00970       n/a
+  argument-help-record naive 0/0 n/a            keepctx    2/2 $0.00545       n/a
+  ALL              naive 0/0 n/a            keepctx    11/12 $0.01114     n/a

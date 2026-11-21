@@ -866,8 +866,9 @@ task in this reply."""
             # The context whole where the provider caches it; pruned where
             # nothing is billed and the window is small. Measured: kept
             # whole, Claude Haiku cost 82% less than naive, against 71%
-            # pruned; on a local Qwen it took 3% more tokens than naive,
-            # against 36% fewer pruned (docs/VERIFIED.md).
+            # pruned; on six click bugs DeepSeek solved 11/12 at $0.0111
+            # each, against 7/9 at $0.0141 pruned; on a local Qwen it took
+            # 3% more tokens than naive, against 36% fewer pruned.
             self.ledger.mode = "turns" if local else "budget"
         if (not tools_off and self.settings.levers.pruning and self.ledger.mode == "budget"
                 and self.ledger.estimate(turn) > self.COMPACT_AT * self.ledger.context_budget):

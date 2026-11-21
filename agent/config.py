@@ -157,8 +157,9 @@ class Settings:
     # summarise the older turns once the context nears context_budget
     # (opencode's approach). Cheaper only with provider prompt caching;
     # on a local model it costs more tokens (docs/VERIFIED.md). "auto":
-    # per call, budget for a cloud model and turns for a local one.
-    prune_mode: str = "turns"
+    # per call, budget for a cloud model and turns for a local one: the
+    # default since it was measured on DeepSeek (docs/VERIFIED.md).
+    prune_mode: str = "auto"
     # Sent to cloud models when set. On DeepSeek V4.1 Flash "low" halved
     # the reasoning tokens for the same answer; Gemini 3.1 Flash-Lite does
     # not reason by default, and any effort turns it on. So unset by default.
@@ -276,7 +277,7 @@ def load(argv: list[str] | None = None) -> Settings:
         sandbox_network=env.get("AGENT_SANDBOX_NETWORK", "0").strip().lower() in ("1", "true", "yes"),
         context_budget=int(env.get("AGENT_CONTEXT_TOKENS", "28000")),
         cloud_context_budget=int(env.get("AGENT_CLOUD_CONTEXT_TOKENS", "64000")),
-        prune_mode=_prune_mode(env.get("AGENT_PRUNE_MODE", "turns")),
+        prune_mode=_prune_mode(env.get("AGENT_PRUNE_MODE", "auto")),
         reasoning_effort=_reasoning_effort(env.get("AGENT_REASONING_EFFORT", "")),
         subagent=env.get("AGENT_SUBAGENT", "0").strip().lower() in ("1", "true", "yes"),
         plan=env.get("AGENT_PLAN", "0").strip().lower() in ("1", "true", "yes"),

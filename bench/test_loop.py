@@ -1278,8 +1278,9 @@ def test_an_explicit_prune_mode_is_kept_on_a_cloud_model(repo):
     assert any(c.startswith("[elided") for c in _long_session(repo, cloud=True, mode="turns"))
 
 
-def test_auto_is_accepted_as_a_prune_mode():
-    from agent.config import _prune_mode
+def test_auto_is_the_default_prune_mode():
+    from agent.config import Settings, _prune_mode
+    assert Settings.__dataclass_fields__["prune_mode"].default == "auto"
     assert _prune_mode(" Auto ") == "auto"
 
 
