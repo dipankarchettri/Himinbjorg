@@ -1193,3 +1193,36 @@ def test_an_edit_task_keeps_its_reads_until_it_ends(repo):
     agent.run("add a power function")
     tools = [m["content"] for m in client.specs[-1].messages if m["role"] == "tool"]
     assert "def divide" in tools[0] and tools[1].startswith("[elided")
+
+
+MIDWAY = "have not changed any file. Stop investigating"
+
+
+def _saw_midway(client):
+    return [i for i, s in enumerate(client.specs)
+            if any(MIDWAY in str(m.get("content")) for m in s.messages)]
+
+
+def test_an_edit_task_with_no_edit_by_half_its_turns_is_told_to_make_it(repo):
+    # Measured on click choice-brackets (DeepSeek): 13 git history commands
+    # and the first edit at turn 23 of 25.
+    greps = [([call("grep", pattern=p)], "") for p in ("add", "sub", "mul", "div", "def", "return")]
+    agent, client = make_agent(repo, greps + [([], "done")])
+    agent.run("fix divide() in calc.py")            # max_turns=10: told after step 5
+    assert _saw_midway(client)[0] == 5
+    assert sum(MIDWAY in str(m.get("content")) for m in client.specs[-1].messages) == 1
+
+
+def test_no_midway_nudge_once_a_file_has_changed(repo):
+    turns = [([call("apply_patch", path="calc.py", find="return a + b", replace="return b + a")], "")]
+    turns += [([call("grep", pattern=p)], "") for p in ("sub", "mul", "div", "def", "return")]
+    agent, client = make_agent(repo, turns + [([], "done")])
+    agent.run("fix divide() in calc.py")
+    assert _saw_midway(client) == []
+
+
+def test_no_midway_nudge_without_loop_limits(repo):
+    greps = [([call("grep", pattern=p)], "") for p in ("add", "sub", "mul", "div", "def", "return")]
+    agent, client = make_agent(repo, greps + [([], "done")], loop_limits=False)
+    agent.run("fix divide() in calc.py")
+    assert _saw_midway(client) == []

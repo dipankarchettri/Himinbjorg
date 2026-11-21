@@ -632,6 +632,17 @@ class Agent:
                                   "missing, and say what it is."))
             if self.settings.levers.loop_limits and not mutating and step == self.ANSWER_NOW:
                 return self._answer_now(decision)
+            # The nudge above fires only when the model stops. Measured on
+            # click choice-brackets (DeepSeek, 25 turns): no file read twice,
+            # but 13 git history commands, and the first edit at turn 23.
+            if (self.settings.levers.loop_limits and mutating and step == max_turns // 2
+                    and not self._edited_this_task and not task.rstrip().endswith("?")):
+                trace.emit("nudge", {"kind": "no_edit_midway", "step": step})
+                self.ledger.append(LedgerEntry(
+                    turn, "user", f"You have used {step} of {max_turns} turns and have not "
+                                  "changed any file. Stop investigating and make the change now "
+                                  "with the tools, from what you have found, then check it. If "
+                                  "no change is needed, say so and explain why."))
 
             no_progress = 0 if progressed else no_progress + 1
             stuck = None
