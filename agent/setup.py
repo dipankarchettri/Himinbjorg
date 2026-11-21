@@ -134,7 +134,10 @@ def describe(environ=None) -> dict:
     which keys are saved (as true or false, never the value) and the
     current tier models and budget."""
     environ = os.environ if environ is None else environ
-    saved = config_mod.load_dotenv(config_mod.user_config_path())
+    # The settings the agent itself runs on, layered as config.load does.
+    install_env = Path(config_mod.__file__).resolve().parent.parent / ".env"
+    saved = {**config_mod.load_dotenv(install_env),
+             **config_mod.load_dotenv(config_mod.user_config_path()), **environ}
     url, models = gw.find_ollama()
     cheap = saved.get("AGENT_MODEL_CHEAP", "")
     provider = cheap.split("/", 1)[0] if cheap.split("/", 1)[0] in gw.PROVIDERS else ""
@@ -144,7 +147,7 @@ def describe(environ=None) -> dict:
         budget = float(config["governance"]["budgets"][0]["max_limit"])
     except (OSError, ValueError, KeyError, IndexError, TypeError):
         pass
-    has = lambda k: bool(saved.get(k) or environ.get(k))
+    has = lambda k: bool(saved.get(k))
     return {
         "providers": [{"name": p.name, "label": p.label, "key_env": p.key_env,
                        "key_url": p.key_url, "key_saved": has(p.key_env),

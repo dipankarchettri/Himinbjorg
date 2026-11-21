@@ -170,6 +170,7 @@ def test_describe_says_which_keys_are_saved_and_never_their_values(no_docker_wor
     setup_mod.run(_args(provider="openrouter", yes=True, no_ollama=True, budget=4),
                   out=lambda *a: None)
     monkeypatch.delenv("OPENROUTER_API_KEY")
+    monkeypatch.setattr(setup_mod.config_mod, "__file__", "/nonexistent/agent/config.py")
     d = setup_mod.describe({})
     assert "sk-or-secret-value" not in json.dumps(d)
     saved = {p["name"]: p["key_saved"] for p in d["providers"]}
@@ -177,6 +178,16 @@ def test_describe_says_which_keys_are_saved_and_never_their_values(no_docker_wor
     assert d["current"]["provider"] == "openrouter" and d["current"]["budget_usd"] == 4
     assert d["current"]["AGENT_MODEL_CHEAP"] == "openrouter/deepseek/deepseek-v4.1-flash"
     assert d["configured"]
+
+
+def test_describe_reads_the_settings_the_agent_runs_on(no_docker_work, monkeypatch, tmp_path):
+    # A clone's .env, then the environment, as config.load layers them.
+    (tmp_path / "agent").mkdir()
+    (tmp_path / ".env").write_text("OPENROUTER_API_KEY=k\nAGENT_MODEL_CHEAP=gemini/gemini-3.1-flash-lite\n")
+    monkeypatch.setattr(setup_mod.config_mod, "__file__", str(tmp_path / "agent" / "config.py"))
+    d = setup_mod.describe({"AGENT_MODEL_CHEAP": "openrouter/anthropic/claude-haiku-5.5"})
+    assert d["current"]["provider"] == "openrouter"
+    assert {p["name"]: p["key_saved"] for p in d["providers"]}["openrouter"]
 
 
 def test_setup_with_yes_and_no_key_stops_before_writing(no_docker_work):

@@ -41,7 +41,9 @@ button { font: inherit; color: inherit; }
 .brand { display: flex; align-items: center; gap: 7px; font-weight: 600; letter-spacing: 0.2px; }
 .brand .logo { color: var(--amber); width: 18px; height: 18px; }
 .spacer { flex: 1; }
-@media (max-width: 250px) {
+/* The view's own title already names it; at a sidebar's usual width the
+   name gives way so the mode chip and the four buttons fit. */
+@media (max-width: 340px) {
   .brand span { display: none; }
   #bar { gap: 4px; padding-right: 6px; }
 }

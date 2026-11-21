@@ -119,12 +119,13 @@ make agent TASK="what does divide() do wrong?" REPO=bench/seed
 
 ## Usage
 
-![himin fixing a real click bug with Claude Haiku: it finds the cause, shows the diff for approval, runs the tests and explains the fix, for $0.0025](docs/images/cli.png)
+![himin fixing a real click bug with Claude Haiku: it reproduces the bug, shows the diff for approval, checks the output, runs the tests and explains the fix, for $0.0048](docs/images/cli.png)
 
 *A real session on [click](https://github.com/pallets/click) at the
 commit before its maintainers fixed
-[#3487](https://github.com/pallets/click/issues/3487). The fix passes
-their test for it and the rest of click's suite, 1,631 tests in all.*
+[#3360](https://github.com/pallets/click/issues/3360): 9 turns, $0.0048
+on Claude Haiku 5.5. The fix passes their test for it and the rest of
+click's suite, 1,610 tests in all.*
 
 `himin` opens with the repository, mode, models, sandbox and budget,
 then a bordered input box: Enter sends, Alt+Enter or a trailing `\`
@@ -173,11 +174,11 @@ code --install-extension extension/himinbjorg.vsix
 Open and trust a repository, then click the Himinbjorg icon in the
 activity bar. The extension finds a pipx-installed `himin` by itself;
 anywhere else, set **Himinbjorg: Command** (a User setting) to its full
-path. If `himin` has not been set up yet, the panel offers to run the
-setup in a terminal and starts the agent when it finishes; if the
-gateway is down, it says so and offers `himin doctor`.
+path. If `himin` has not been set up yet, the panel offers **Set up
+here** (or the same setup in a terminal) and starts the agent when it
+finishes; if the gateway is down, it says so and offers `himin doctor`.
 
-![The panel in VS Code after Claude Haiku fixed a click bug: tool steps, approvals, the answer and its cost](docs/images/vscode-panel.png)
+![The panel in VS Code after Claude Haiku fixed a click bug: tool steps, approvals, the answer and its cost, $0.0023](docs/images/vscode-panel.png)
 
 The panel shows the mode, the models and a budget bar along the top, and
 undo, cost and new-conversation buttons. Each tool call is one line with
@@ -186,18 +187,29 @@ button on code. Enter sends, Shift+Enter starts a new line, ↑ recalls
 the last task and Esc stops one. It follows your theme, light, dark or
 high contrast.
 
-![An edit to click's core.py waiting for approval: the agent's reasoning in the panel, the exact diff beside it](docs/images/vscode-approval.png)
+![An edit to click's types.py waiting for approval on a card in the panel, the exact diff also open beside it](docs/images/vscode-approval.png)
 
-*Both from one real session on click, fixing the double brackets its
-maintainers fixed in `762c97e`; the fix passes their tests and the rest
-of click's suite, 1,658 tests in all.*
+*Both from one real session on click, fixing the `ValueError` message
+its maintainers fixed in `fc6c7c4`
+([#3105](https://github.com/pallets/click/issues/3105)); the fix passes
+their tests and the rest of click's suite, 1,494 tests in all.*
 
 Approvals are asked in the panel, on a card with the exact diff that
 the extension builds and keeps outside the conversation, so model text
 cannot imitate or answer it; native modal dialogs are a setting away
 (`himinbjorg.approvals`). Failover
 and budget changes appear as notifications, and the status bar shows the
-session's cost. More in [extension/README.md](extension/README.md).
+session's cost.
+
+![The configure picker in VS Code: each provider, which keys are saved, and the current one](docs/images/vscode-configure.png)
+
+The gear button (or **Himinbjorg: Configure provider, keys and models**)
+changes the provider, a key or the models without a terminal: pick a
+provider, keep its saved key or paste a new one in a password box, then
+choose the two models (any id the provider serves), the local model and
+the monthly limit. It runs `himin setup` with your choices, checks each
+model with a real request and restarts the agent. More in
+[extension/README.md](extension/README.md).
 
 ## How it works
 
