@@ -57,6 +57,7 @@ evidence/*
 !evidence/click-20261121-111304/
 !evidence/click-20261121-122734/
 !evidence/click-20261121-124009/
+!evidence/ablation-20261121-1104/
 evidence/swebench-*/logs/
 
 # Bifrost persisted state (databases, logs, vector data).

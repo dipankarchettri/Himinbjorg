@@ -335,8 +335,10 @@ evidence/scenario1-benchmark-20261119-221735.json
 evidence/scenario1-benchmark-20261119-222203.json`.
 
 No per-lever ranking is claimed: two ablations (one lever off at a time)
-could not separate individual levers from sampling noise at 3 repeats, so
-the levers are claimed jointly. Cloud runs (Gemini, Claude) are in
+could not separate individual levers from sampling noise at 3 repeats, and
+a third at 9 repeats on Qwen 2.5 7B found no interval excluding zero (diff
+writes came closest: 21/63 passes without them against 28/63), so the
+levers are claimed jointly. Cloud runs (Gemini, Claude) are in
 `docs/VERIFIED.md`.
 
 ## Scenario 1 on outside tasks: QuixBugs

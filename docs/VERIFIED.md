@@ -1566,3 +1566,46 @@ $0.0220 a run, against 7/8 at about $0.020 for the same build without it
 help_option the first edit then came at the third or fourth main call
 (one run: 11 turns, $0.010), on NoSuchCommand at the ninth and the
 thirteenth. Not better on four runs, so it stays off.
+
+## Ablation on the local Qwen 2.5 7B, 9 repetitions (2026-11-21)
+
+One lever off at a time against every lever on, the seven-task pack,
+`ollama/qwen2.5:7b-instruct` on every tier, the seven configurations run
+in parallel on one GPU (528247a). Routing and the gateway cache are left
+out: with one model and a fresh cache scope per run they change nothing.
+Tokens per pass is every token spent divided by the passes; the interval
+is a 95% bootstrap that resamples runs within each task. Evidence:
+`evidence/ablation-20261121-1104/`; reproduce the table with
+`python bench/ablation_report.py evidence/ablation-20261121-1104`.
+
+| Configuration | Passed | Tokens per pass | Against all on, 95% interval | Pass rate change, 95% interval |
+| --- | --- | --- | --- | --- |
+| All levers on | 28/63 | 43,549 | | |
+| No file memory | 27/63 | 37,484 | -13.9% [-36.8%, +20.4%] | -1.6% [-11.1%, +7.9%] |
+| No retrieval | 30/63 | 32,147 | -26.2% [-47.1%, +4.6%] | +3.2% [-6.3%, +12.7%] |
+| No pruning | 31/63 | 42,708 | -1.9% [-32.7%, +43.2%] | +4.8% [-6.3%, +15.9%] |
+| No tool disclosure | 25/63 | 49,659 | +14.0% [-15.4%, +56.4%] | -4.8% [-14.3%, +4.8%] |
+| No diff writes | 21/63 | 58,066 | +33.3% [-5.0%, +94.0%] | -11.1% [-22.2%, 0.0%] |
+| No loop limits | 26/63 | 42,580 | -2.2% [-29.8%, +35.4%] | -3.2% [-11.1%, +4.8%] |
+
+No interval excludes zero, so no lever is ranked and no default changed.
+Diff writes come closest: without them 7 fewer passes and a third more
+tokens per pass, and on the first 8 repetitions the pass-rate interval
+was [-25.0%, -3.6%]. Two readings that looked like findings did not hold:
+
+- After 4 repetitions, file memory off was 42% cheaper per pass with an
+  interval of [-62.6%, -8.3%]. At 9 it is -13.9% and crosses zero. File
+  memory suppressed no reread in any run; on these small files it only
+  changes the excerpt shown after an edit.
+- Retrieval off at -26.2%: every file in the pack is under the size sent
+  whole (12,592 characters against 28,000), so the lever only widens a
+  ranged read to the enclosing function. Read sizes were the same in both
+  arms (mean 1,726 against 1,650 characters).
+
+Per task, the spread is the model's. Across the seven configurations
+shop_freeship passed none of its 63 runs and shop_rename 4. docstring
+passed 2/9 with every lever on; in the last docstring run of each of the
+nine configurations (these seven and the two below), seven wrote a
+comment instead of a docstring, one repeated the `def` line inside the
+function and one changed nothing. zero_check and add_power pass in
+nearly every run.
