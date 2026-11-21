@@ -12,6 +12,7 @@ import { EventEmitter } from "events";
 import * as path from "path";
 import * as vscode from "vscode";
 import { AgentClient, AgentEvent, ApprovalRequest } from "./client";
+import { configure } from "./configure";
 import { resolveCommand } from "./resolve";
 import { ChatView, ViewMessage } from "./view";
 
@@ -76,6 +77,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
       client = undefined;
       ensureClient();
     }),
+    vscode.commands.registerCommand("himinbjorg.configure", configureHere),
     vscode.workspace.onDidChangeConfiguration((e) => {
       // Where approvals are asked takes effect on the next one; the rest
       // is read when the agent starts.
@@ -189,6 +191,9 @@ function onViewMessage(msg: ViewMessage): void {
         view.post({ kind: "approval", text: pending.card });
       }
       break;
+    case "configure":
+      void configureHere();
+      break;
     case "setup":
     case "doctor":
       runInTerminal(msg.type);
@@ -206,6 +211,23 @@ function stopTask(): void {
 function agentCommand(): string {
   // Machine-scoped, so a repository's .vscode/settings.json cannot point it elsewhere.
   return resolveCommand(vscode.workspace.getConfiguration("himinbjorg").get<string>("command") || "himin");
+}
+
+// Provider, keys and models, chosen with quick picks and applied by
+// `himin setup --yes`, which restarts the gateway: not during a task.
+async function configureHere(): Promise<void> {
+  if (busy) {
+    vscode.window.showInformationMessage("Wait for the running task to finish, or stop it.");
+    return;
+  }
+  await configure(agentCommand(), repoRoot(), output, () => {
+    client?.stop();
+    client = undefined;
+    view.post({ kind: "clear", text: "" });
+    if (repoRoot()) {
+      ensureClient();
+    }
+  });
 }
 
 // `himin setup` asks for a key with hidden input and `himin doctor` prints a

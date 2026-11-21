@@ -93,13 +93,15 @@ himin                                                  # interactive session
 himin "fix the failing test in tests/test_orders.py"   # one task, then exit
 himin --confidential "explain the auth flow"           # local models only
 himin --resume                                         # continue the last session here
-himin setup                                            # change provider, key or limit
+himin setup                                            # change provider, key, models or limit
 himin doctor                                           # check everything, with fixes
 himin gateway up | down | status                       # the gateway himin runs
 ```
 
 For a script, `GEMINI_API_KEY=... himin setup --provider gemini --no-ollama --yes`
-asks nothing. Confidential mode needs Ollama: with it running at setup,
+asks nothing; `--cheap-model`, `--capable-model` and `--local-model` pick
+the models, and a cloud model outside setup's list is allowed on the
+gateway too. In VS Code, the panel's gear button does the same. Confidential mode needs Ollama: with it running at setup,
 a second gateway key is made that reaches local models only. Every setting
 is in [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 

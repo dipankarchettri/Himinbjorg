@@ -315,10 +315,14 @@
     card.appendChild(el("p", "", "Choose a model provider and paste its key. Setup then starts the " +
       "Bifrost gateway on this machine, which keeps your spending limit and keeps confidential code " +
       "local, and checks every model with a real request. It takes about a minute."));
-    const go = el("button", "primary-btn", "Run setup in a terminal");
-    go.addEventListener("click", () => vscode.postMessage({ type: "setup" }));
+    const go = el("button", "primary-btn", "Set up here");
+    go.addEventListener("click", () => vscode.postMessage({ type: "configure" }));
     card.appendChild(go);
-    card.appendChild(el("p", "small", "The agent restarts by itself when setup finishes."));
+    const term = el("button", "link", "Or run setup in a terminal");
+    term.addEventListener("click", () => vscode.postMessage({ type: "setup" }));
+    card.appendChild(term);
+    card.appendChild(el("p", "small", "The agent restarts by itself when setup finishes. " +
+      "Change the provider, keys or models later with the gear button above."));
     log.replaceChildren(card);
     turn = null;
   }
@@ -512,7 +516,7 @@
       case "log": addLog(text); break;
       case "stats": addStats(text); break;
       case "notice": addBanner("notice", text); break;
-      case "gateway": addBanner("gateway", text, [["Run himin doctor", "doctor"], ["Run setup", "setup"]]); break;
+      case "gateway": addBanner("gateway", text, [["Run himin doctor", "doctor"], ["Configure", "configure"]]); break;
       case "error": setThinking(false); addBanner("error", text); break;
       case "info": addBanner("info", text); break;
       default: addLog(text);

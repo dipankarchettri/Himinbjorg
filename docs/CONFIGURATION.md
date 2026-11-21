@@ -14,8 +14,20 @@ file for Bifrost and Redis Stack (compose project `himinbjorg`, bound to
 the providers you chose, your monthly budget on the standard key, and a
 local-only key when Ollama was running. Both virtual keys and the setup
 token are random per install. Rerunning it rewrites both and restarts the
-gateway on the same port. Edit the env file by hand for anything setup
-does not ask, such as the tiers below.
+gateway on the same port.
+
+Setup also asks for the two cloud models (everyday and harder tasks) and,
+with more than one pulled, the Ollama model for code. A cloud model can
+be any id the provider serves: the gateway allows only the models in its
+config, so setup adds the chosen ones to the provider's list. As flags:
+`--cheap-model`, `--capable-model` (with or without the provider prefix)
+and `--local-model` (must be pulled). Editing `AGENT_MODEL_*` in the env
+file by hand works only for a model the gateway already allows; a newly
+pulled Ollama model needs setup run again. `himin setup --describe`
+prints the providers, their models, which keys are saved (true or false,
+never the key) and the current models, as JSON; the VS Code extension's
+**Configure provider, keys and models** is built on it and on
+`himin setup --yes`.
 
 ## Gateway and keys
 

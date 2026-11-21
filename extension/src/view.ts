@@ -14,11 +14,12 @@ export type ViewMessage =
   | { type: "cost" }
   | { type: "reset" }
   | { type: "setup" }
+  | { type: "configure" }
   | { type: "doctor" }
   | { type: "visible" }
   | { type: "approve"; id: string; token: string; answer: "y" | "n" | "a" };
 
-const ALLOWED = new Set(["task", "cancel", "undo", "cost", "reset", "setup", "doctor", "visible", "approve"]);
+const ALLOWED = new Set(["task", "cancel", "undo", "cost", "reset", "setup", "configure", "doctor", "visible", "approve"]);
 const ANSWERS = new Set(["y", "n", "a"]);
 
 const ICONS: Record<string, string> = {
@@ -34,6 +35,7 @@ const ICONS: Record<string, string> = {
   copy: '<rect x="5.5" y="5.5" width="7.5" height="8" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M3 10.5V3.8C3 3.4 3.4 3 3.8 3h5.7" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>',
   select: '<path d="M3 4h10M3 8h6M3 12h8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M12 7.5v5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>',
   keys: '<rect x="1.8" y="4" width="12.4" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 6.8h.1M7 6.8h.1M9.5 6.8h.1M12 6.8h.1M5 9.4h6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>',
+  gear: '<circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M3.6 12.4 5 11M11 5l1.4-1.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>',
   check: '<path d="m3.5 8.3 2.8 2.8 6.2-6.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
 };
 
@@ -130,6 +132,7 @@ export class ChatView implements vscode.WebviewViewProvider {
   <button class="tool" data-cmd="undo" title="Undo the agent's last edit" aria-label="Undo">${icon("undo")}</button>
   <button class="tool" data-cmd="cost" title="Session tokens and cost" aria-label="Cost">${icon("coin")}</button>
   <button class="tool" data-cmd="reset" title="New conversation" aria-label="New conversation">${icon("plus")}</button>
+  <button class="tool" data-cmd="configure" title="Provider, keys and models" aria-label="Configure">${icon("gear")}</button>
 </header>
 <div id="meta" hidden>
   <div id="meta-row"><span id="meta-text"></span><span id="budget-label"></span></div>

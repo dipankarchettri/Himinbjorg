@@ -87,6 +87,11 @@
         "command": "himinbjorg.restart",
         "title": "Restart the agent",
         "category": "Himinbjorg"
+      },
+      {
+        "command": "himinbjorg.configure",
+        "title": "Configure provider, keys and models",
+        "category": "Himinbjorg"
       }
     ],
     "menus": {
@@ -134,6 +139,7 @@
     "package": "vsce package --out himinbjorg.vsix",
     "test:vscode": "npm run compile && node out/test/vscode/run.js",
     "test:flow": "npm run compile && node out/test/vscode/run.js flow",
+    "test:configure": "npm run compile && node out/test/vscode/run.js configure",
     "test:unit": "npm run compile && node out/test/resolve.test.js"
   },
   "devDependencies": {

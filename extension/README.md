@@ -31,10 +31,19 @@ runs as `himin --serve` in the open folder.
 2. Install the extension: download `himinbjorg.vsix` from the latest
    release, then `code --install-extension himinbjorg.vsix`.
 3. Open a repository folder and click the Himinbjorg icon. The first time,
-   the panel offers **Run setup in a terminal**: choose a provider, paste
-   its key, set a monthly limit, and setup starts the gateway and checks
-   each model. The agent restarts by itself when it finishes. After that,
-   opening the panel starts the gateway if it has stopped.
+   the panel offers **Set up here**: choose a provider, paste its key
+   (in a password box), pick the models and a monthly limit, and setup
+   starts the gateway and checks each model with a real request. The
+   agent restarts by itself when it finishes. After that, opening the
+   panel starts the gateway if it has stopped.
+
+To change the provider, a key or the models later, use the gear button
+in the panel, or **Himinbjorg: Configure provider, keys and models**. A
+model can be any id the provider serves, not only the ones listed; it is
+added to what the gateway allows. A key is passed to `himin setup` in
+its environment, never on a command line, and saved only in
+`~/.config/himinbjorg/env` (readable by you alone). **Or run setup in a
+terminal** asks the same questions there.
 
 The extension finds `himin` on `PATH` or in pipx's bin directory
 (`~/.local/bin`); anywhere else, set **Himinbjorg: Command** to its full

@@ -26,6 +26,7 @@ export async function run(): Promise<void> {
   const commands = await vscode.commands.getCommands(true);
   for (const id of ["himinbjorg.ask", "himinbjorg.askAboutSelection", "himinbjorg.stop",
                     "himinbjorg.undo", "himinbjorg.cost", "himinbjorg.reset", "himinbjorg.restart",
+                    "himinbjorg.configure",
                     "himinbjorg.chat.focus"]) {
     assert.ok(commands.includes(id), `command ${id} is registered`);
   }

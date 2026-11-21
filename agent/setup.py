@@ -7,13 +7,19 @@ keys generated for this install, writes and starts the gateway
 tier a real request with a tool. `himin` runs it by itself the first
 time, when nothing is configured.
 
-Everything can also be given as flags, for a script:
+Everything can also be given as flags, for a script (or the VS Code
+extension, which passes the key in the environment):
     GEMINI_API_KEY=... himin setup --provider gemini --no-ollama --yes
+    himin setup --provider openrouter --cheap-model deepseek/deepseek-v4.1-flash \
+        --capable-model anthropic/claude-sonnet-5.5 --yes
+`himin setup --describe` prints the providers, their models, which keys
+are saved (never the keys) and the current models, as JSON.
 """
 from __future__ import annotations
 
 import argparse
 import getpass
+import json
 import os
 import platform
 import sys
@@ -76,6 +82,20 @@ class Asker:
                 pass
             self.out("  Type an amount in US dollars, such as 5.")
 
+    def model(self, question: str, models: list[str], default: str) -> str:
+        """One of `models`, or an id typed in."""
+        if self.yes:
+            return default
+        options = list(dict.fromkeys([default, *models]))
+        i = self.choose(question, [*options, "Another model (type its id)"], 1)
+        if i <= len(options):
+            return options[i - 1]
+        while True:
+            raw = self._ask("  Model id, as the provider names it: ").strip()
+            if raw and not any(c.isspace() for c in raw):
+                return raw
+            self.out("  Type the id with no spaces, such as deepseek/deepseek-v4.1-flash.")
+
     def secret(self, question: str, optional: bool = False) -> str:
         while True:
             value = self._secret(f"  {question}: ").strip()
@@ -103,6 +123,42 @@ def _port_from(url: str) -> int:
         return 0
 
 
+def _model_id(raw: str, provider: str) -> str:
+    """A tier model as given on the command line, without its provider."""
+    raw = raw.strip()
+    return raw[len(provider) + 1:] if raw.startswith(provider + "/") else raw
+
+
+def describe(environ=None) -> dict:
+    """What the extension needs to offer a choice: providers, their models,
+    which keys are saved (as true or false, never the value) and the
+    current tier models and budget."""
+    environ = os.environ if environ is None else environ
+    saved = config_mod.load_dotenv(config_mod.user_config_path())
+    url, models = gw.find_ollama()
+    cheap = saved.get("AGENT_MODEL_CHEAP", "")
+    provider = cheap.split("/", 1)[0] if cheap.split("/", 1)[0] in gw.PROVIDERS else ""
+    budget = 0.0
+    try:
+        config = json.loads((gw.data_dir() / "data" / "config.json").read_text())
+        budget = float(config["governance"]["budgets"][0]["max_limit"])
+    except (OSError, ValueError, KeyError, IndexError, TypeError):
+        pass
+    has = lambda k: bool(saved.get(k) or environ.get(k))
+    return {
+        "providers": [{"name": p.name, "label": p.label, "key_env": p.key_env,
+                       "key_url": p.key_url, "key_saved": has(p.key_env),
+                       "cheap": p.cheap, "capable": p.capable, "models": list(p.models)}
+                      for p in gw.PROVIDERS.values()],
+        "ollama": {"url": url, "models": models},
+        "tavily_saved": has("TAVILY_API_KEY"),
+        "configured": not needs_setup(environ),
+        "current": {"provider": provider, "budget_usd": budget,
+                    **{k: saved.get(k, "") for k in ("AGENT_MODEL_CHEAP", "AGENT_MODEL_CAPABLE",
+                                                     "AGENT_MODEL_LOCAL_CODE")}},
+    }
+
+
 def run(args, asker: Asker | None = None, out=print) -> int:
     asker = asker or Asker(args.yes, out)
     env_path = config_mod.user_config_path()
@@ -122,12 +178,20 @@ def run(args, asker: Asker | None = None, out=print) -> int:
     url, models = ("", []) if args.no_ollama else gw.find_ollama()
     if models:
         local = gw.pick_local_model(models)
-        out(f"  ✓ Ollama at {url}: {len(models)} models, {local} for code")
+        out(f"  ✓ Ollama at {url}: {len(models)} models")
         if platform.system() == "Linux" and "//localhost:" in url:
             out("    Note: Ollama listens on localhost only, which Docker cannot reach on Linux.")
             out("    If the local tier fails below, set OLLAMA_HOST=0.0.0.0 for the Ollama service.")
         if asker.confirm("Use these local models? Confidential mode needs them", True):
             choice.ollama_url, choice.ollama_models = url, models
+            if args.local_model:
+                if args.local_model.removeprefix("ollama/") not in models:
+                    out(f"  ✗ {args.local_model} is not pulled in Ollama. One of: {', '.join(models)}.")
+                    return 2
+                choice.local = args.local_model.removeprefix("ollama/")
+            elif len(models) > 1:
+                choice.local = asker.model("Local model for code", models, local)
+            out(f"  ✓ {choice.local or local} for code")
     elif not args.no_ollama:
         out("  · Ollama is not running, so every model will be a cloud model.")
         out("    Confidential mode (code that never leaves this machine) needs Ollama.")
@@ -164,7 +228,15 @@ def run(args, asker: Asker | None = None, out=print) -> int:
         else:
             out(f"\n  Get a key at {p.key_url}")
             values[p.key_env] = asker.secret(f"Paste your {p.key_env} (hidden)")
-    if not asker.yes and not (os.environ.get("TAVILY_API_KEY") or old.get("TAVILY_API_KEY")):
+    if picked:
+        # The tier models: flags, else a question, else the provider's defaults.
+        choice.cheap = _model_id(args.cheap_model or asker.model(
+            "Model for everyday work", list(p.models), p.cheap), picked)
+        choice.capable = _model_id(args.capable_model or asker.model(
+            "Model for harder tasks", list(p.models), p.capable), picked)
+    if os.environ.get("TAVILY_API_KEY"):
+        values["TAVILY_API_KEY"] = os.environ["TAVILY_API_KEY"]
+    elif not asker.yes and not old.get("TAVILY_API_KEY"):
         tavily = asker.secret("Tavily key for web search (optional, Enter to skip)", optional=True)
         if tavily:
             values["TAVILY_API_KEY"] = tavily
@@ -223,11 +295,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--yes", action="store_true",
                    help="take every default; keys must be in the environment")
     p.add_argument("--no-check", action="store_true", help="skip the model check at the end")
+    p.add_argument("--cheap-model", default="",
+                   help="the provider's model for everyday work, any id it serves")
+    p.add_argument("--capable-model", default="",
+                   help="the provider's model for harder tasks, any id it serves")
+    p.add_argument("--local-model", default="", help="the Ollama model for code (must be pulled)")
+    p.add_argument("--describe", action="store_true",
+                   help="print the providers, models and saved keys as JSON, and exit")
     return p
 
 
 def main(argv: list[str]) -> int:
     args = build_parser().parse_args(argv)
+    if args.describe:
+        print(json.dumps(describe()))
+        return 0
     try:
         return run(args)
     except (KeyboardInterrupt, EOFError):

@@ -27,7 +27,7 @@ async function main(): Promise<void> {
   const src = path.resolve(__dirname, "..", "..", "..");
   const ext = process.env.HIMIN_EXT_PATH ?? src;
   const root = path.resolve(src, "..");
-  const suite = process.argv[2] === "flow" ? "flow" : "suite";
+  const suite = ["flow", "configure"].includes(process.argv[2]) ? process.argv[2] : "suite";
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), "himin-vscode-"));
   fs.cpSync(path.join(root, "bench", "seed"), repo, { recursive: true });
   const user = fs.mkdtempSync(path.join(os.tmpdir(), "himin-vscode-user-"));

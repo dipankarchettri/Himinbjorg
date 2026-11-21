@@ -73,6 +73,20 @@ class Choice:
     ollama_url: str = ""                   # as the host reaches it
     port: int = DEFAULT_PORT
     budget_usd: float = 5.0
+    # Model ids without the provider prefix; "" takes the default. A cloud
+    # id outside the provider's list is added to what the gateway allows.
+    cheap: str = ""
+    capable: str = ""
+    local: str = ""                        # an Ollama model, for code
+
+
+def cloud_models(choice: Choice) -> list[str]:
+    """What the gateway lets the cloud provider serve: its list, plus the
+    models chosen for the tiers."""
+    if not choice.provider:
+        return []
+    p = PROVIDERS[choice.provider]
+    return list(dict.fromkeys([*p.models, choice.cheap or p.cheap, choice.capable or p.capable]))
 
 
 def data_dir() -> Path:
@@ -95,13 +109,14 @@ def pick_local_model(models: list[str]) -> str:
 
 def tier_models(choice: Choice) -> dict[str, str]:
     """AGENT_MODEL_* for the choice. Without Ollama every tier is cloud."""
-    local = pick_local_model(choice.ollama_models)
+    local = (choice.local if choice.local in choice.ollama_models
+             else pick_local_model(choice.ollama_models))
     small = min(choice.ollama_models, key=len) if choice.ollama_models else ""
     out: dict[str, str] = {}
     if choice.provider:
         p = PROVIDERS[choice.provider]
-        out["AGENT_MODEL_CHEAP"] = f"{p.name}/{p.cheap}"
-        out["AGENT_MODEL_CAPABLE"] = f"{p.name}/{p.capable}"
+        out["AGENT_MODEL_CHEAP"] = f"{p.name}/{choice.cheap or p.cheap}"
+        out["AGENT_MODEL_CAPABLE"] = f"{p.name}/{choice.capable or p.capable}"
     if local:
         out["AGENT_MODEL_LOCAL_CODE"] = f"ollama/{local}"
         out["AGENT_MODEL_LOCAL_SMALL"] = f"ollama/{small}"
@@ -127,10 +142,11 @@ def render_config(choice: Choice, vk_standard: str, vk_confidential: str,
     confidential: list = []
     if choice.provider:
         p = PROVIDERS[choice.provider]
+        models = cloud_models(choice)
         providers[p.name] = {"keys": [{"name": f"{p.name}-primary", "value": f"env.{p.key_env}",
-                                       "models": list(p.models), "weight": 1.0}]}
+                                       "models": models, "weight": 1.0}]}
         standard.append({"provider": p.name, "weight": 1.0,
-                         "allowed_models": list(p.models), "key_ids": ["*"]})
+                         "allowed_models": models, "key_ids": ["*"]})
     if choice.ollama_models:
         url = container_ollama_url(choice.ollama_url)
         providers["ollama"] = {
